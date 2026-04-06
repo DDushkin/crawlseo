@@ -331,12 +331,10 @@ MIT License - see [LICENSE](./LICENSE) file
 
 - **Issues**: [GitHub Issues](https://github.com/crawlseo/crawlseo/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/crawlseo/crawlseo/discussions)
-- **Email**: hello@crawlseo.dev
-- **Twitter**: [@crawlseo](https://twitter.com/crawlseo)
 
 ## Credits
 
-Built with ❤️ by [Brandson Digital](https://brandson.digital)
+Built with ❤️ by [Brandson Digital](https://brandson.digital) • Created by [Mike](https://m1ke.digital)
 
 > Self-hosted SEO tools should be free. Your data should be yours.
 
