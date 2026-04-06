@@ -16,6 +16,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       authorization: {
         params: {
           scope: "openid email profile https://www.googleapis.com/auth/webmasters.readonly",
+          access_type: "offline",
+          prompt: "consent",
         },
       },
     }),
@@ -28,6 +30,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return session;
     },
   },
+  events: {
+    async signIn({ user, account }) {
+      if (account?.access_token && user?.email) {
+        // Save Google OAuth tokens after user is created by adapter
+        try {
+          await db.user.update({
+            where: { email: user.email },
+            data: {
+              googleTokens: {
+                accessToken: account.access_token,
+                refreshToken: account.refresh_token,
+                expiresAt: account.expires_at,
+                tokenType: account.token_type,
+                scope: account.scope,
+              },
+            },
+          });
+        } catch (error) {
+          console.error("Failed to save Google tokens:", error);
+        }
+      }
+    },
+  },
   pages: {
     signIn: "/login",
     error: "/login",
@@ -35,5 +60,5 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: {
     strategy: "database",
   },
-  secret: process.env.APP_SECRET,
+  secret: process.env.NEXTAUTH_SECRET,
 });

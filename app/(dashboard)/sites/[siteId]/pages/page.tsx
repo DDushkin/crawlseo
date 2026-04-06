@@ -3,17 +3,18 @@ import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 
 interface PagesPageProps {
-  params: {
+  params: Promise<{
     siteId: string;
-  };
+  }>;
 }
 
 export default async function PagesPage({ params }: PagesPageProps) {
   const session = await auth();
+  const { siteId } = await params;
 
   // Verify site belongs to user
   const site = await db.site.findUnique({
-    where: { id: params.siteId },
+    where: { id: siteId },
     select: { userId: true, domain: true },
   });
 
@@ -27,7 +28,7 @@ export default async function PagesPage({ params }: PagesPageProps) {
 
   const pages = await db.page.findMany({
     where: {
-      siteId: params.siteId,
+      siteId: siteId,
       date: {
         gte: thirtyDaysAgo,
       },
@@ -84,13 +85,13 @@ export default async function PagesPage({ params }: PagesPageProps) {
 
         <div className="flex gap-4 mt-4">
           <a
-            href={`/sites/${params.siteId}/keywords`}
+            href={`/sites/${siteId}/keywords`}
             className="text-sm font-medium text-slate-600 hover:text-slate-900 pb-2 border-b-2 border-transparent hover:border-slate-300"
           >
             Keywords
           </a>
           <a
-            href={`/sites/${params.siteId}/pages`}
+            href={`/sites/${siteId}/pages`}
             className="text-sm font-medium text-blue-600 pb-2 border-b-2 border-blue-600"
           >
             Pages

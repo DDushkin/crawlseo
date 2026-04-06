@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { AddSiteModal } from "@/components/sites/add-site-modal";
+import { SyncButton } from "@/components/sites/sync-button";
 import Link from "next/link";
 
 export default async function SitesPage() {
@@ -49,8 +50,8 @@ export default async function SitesPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {sites.map((site) => (
-            <Link key={site.id} href={`/sites/${site.id}/keywords`}>
-              <div className="bg-white rounded-lg border border-slate-200 p-6 hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer h-full">
+            <div key={site.id} className="bg-white rounded-lg border border-slate-200 p-6 hover:shadow-lg hover:border-blue-200 transition-all h-full">
+              <Link href={`/sites/${site.id}/keywords`} className="block">
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className="font-semibold text-slate-900 text-lg break-all">
@@ -87,8 +88,12 @@ export default async function SitesPage() {
                 <p className="text-xs text-slate-400 mt-4">
                   Added {new Date(site.createdAt).toLocaleDateString()}
                 </p>
+              </Link>
+
+              <div className="mt-4 pt-4 border-t border-slate-200">
+                <SyncButton siteId={site.id} />
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}

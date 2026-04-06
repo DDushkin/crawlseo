@@ -114,7 +114,7 @@ export function AddSiteModal() {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger>
+      <DialogTrigger asChild>
         <Button className="bg-blue-600 hover:bg-blue-700 text-white">
           Add Site
         </Button>
