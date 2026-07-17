@@ -61,7 +61,7 @@ export function TrafficChart({ siteId, days = 90 }: TrafficChartProps) {
   if (loading) {
     return (
       <div className="panel flex h-80 items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading traffic…</p>
+        <p className="text-atom-body text-muted-foreground">Loading traffic…</p>
       </div>
     );
   }
@@ -69,7 +69,7 @@ export function TrafficChart({ siteId, days = 90 }: TrafficChartProps) {
   if (error) {
     return (
       <div className="panel flex h-80 items-center justify-center">
-        <p className="text-sm text-danger">{error}</p>
+        <p className="text-atom-body text-danger">{error}</p>
       </div>
     );
   }
@@ -77,31 +77,38 @@ export function TrafficChart({ siteId, days = 90 }: TrafficChartProps) {
   if (data.length === 0) {
     return (
       <div className="panel flex h-80 flex-col items-center justify-center gap-2">
-        <p className="font-heading text-base font-medium text-foreground">No traffic yet</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="font-heading text-atom-subheader font-medium text-foreground">
+          No traffic yet
+        </p>
+        <p className="text-atom-body text-muted-foreground">
           Sync GSC data to populate the last {days} days.
         </p>
       </div>
     );
   }
 
+  const info = "#0284FE";
+  const success = "#36AB80";
+  const axis = "#8A94A6";
+  const grid = "#E1E4E8";
+
   return (
     <div className="panel p-5 sm:p-6">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h3 className="font-heading text-lg font-semibold text-foreground">
+          <h3 className="font-heading text-atom-subheader font-semibold text-foreground">
             Search traffic
           </h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-atom-caption text-muted-foreground">
             Daily clicks & impressions · last {days} days
           </p>
         </div>
-        <div className="flex gap-4 text-xs">
+        <div className="flex gap-4 text-atom-caption">
           <span className="inline-flex items-center gap-2 text-muted-foreground">
-            <span className="size-2 rounded-full bg-signal" /> Clicks
+            <span className="size-2 rounded-full" style={{ background: info }} /> Clicks
           </span>
           <span className="inline-flex items-center gap-2 text-muted-foreground">
-            <span className="size-2 rounded-full bg-chart-2" /> Impressions
+            <span className="size-2 rounded-full" style={{ background: success }} /> Impressions
           </span>
         </div>
       </div>
@@ -110,26 +117,26 @@ export function TrafficChart({ siteId, days = 90 }: TrafficChartProps) {
         <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="clicksFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="oklch(0.84 0.18 145)" stopOpacity={0.35} />
-              <stop offset="100%" stopColor="oklch(0.84 0.18 145)" stopOpacity={0} />
+              <stop offset="0%" stopColor={info} stopOpacity={0.28} />
+              <stop offset="100%" stopColor={info} stopOpacity={0} />
             </linearGradient>
             <linearGradient id="imprFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="oklch(0.75 0.12 220)" stopOpacity={0.25} />
-              <stop offset="100%" stopColor="oklch(0.75 0.12 220)" stopOpacity={0} />
+              <stop offset="0%" stopColor={success} stopOpacity={0.18} />
+              <stop offset="100%" stopColor={success} stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="oklch(0.35 0.02 250 / 0.35)" strokeDasharray="3 6" vertical={false} />
+          <CartesianGrid stroke={grid} strokeDasharray="4 6" vertical={false} />
           <XAxis
             dataKey="date"
             tickFormatter={formatAxisDate}
-            tick={{ fill: "oklch(0.68 0.02 250)", fontSize: 11 }}
+            tick={{ fill: axis, fontSize: 11 }}
             axisLine={false}
             tickLine={false}
             minTickGap={28}
           />
           <YAxis
             yAxisId="clicks"
-            tick={{ fill: "oklch(0.68 0.02 250)", fontSize: 11 }}
+            tick={{ fill: axis, fontSize: 11 }}
             axisLine={false}
             tickLine={false}
             width={40}
@@ -137,18 +144,19 @@ export function TrafficChart({ siteId, days = 90 }: TrafficChartProps) {
           <YAxis
             yAxisId="impressions"
             orientation="right"
-            tick={{ fill: "oklch(0.68 0.02 250)", fontSize: 11 }}
+            tick={{ fill: axis, fontSize: 11 }}
             axisLine={false}
             tickLine={false}
             width={48}
           />
           <Tooltip
             contentStyle={{
-              background: "oklch(0.17 0.014 250)",
-              border: "1px solid oklch(0.28 0.02 250 / 55%)",
+              background: "#FFFFFF",
+              border: "1px solid #E1E4E8",
               borderRadius: 12,
               fontSize: 12,
-              boxShadow: "0 12px 40px oklch(0 0 0 / 0.4)",
+              boxShadow: "0 0 1px 0 rgba(8,11,14,0.06), 0 16px 16px -1px rgba(8,11,14,0.1)",
+              color: "#0A1F44",
             }}
             labelFormatter={(label) => formatAxisDate(String(label))}
             formatter={(value, name) => [
@@ -160,7 +168,7 @@ export function TrafficChart({ siteId, days = 90 }: TrafficChartProps) {
             yAxisId="impressions"
             type="monotone"
             dataKey="impressions"
-            stroke="oklch(0.75 0.12 220)"
+            stroke={success}
             fill="url(#imprFill)"
             strokeWidth={2}
             isAnimationActive={false}
@@ -169,7 +177,7 @@ export function TrafficChart({ siteId, days = 90 }: TrafficChartProps) {
             yAxisId="clicks"
             type="monotone"
             dataKey="clicks"
-            stroke="oklch(0.84 0.18 145)"
+            stroke={info}
             fill="url(#clicksFill)"
             strokeWidth={2}
             isAnimationActive={false}

@@ -134,13 +134,7 @@ export function AddSiteModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger
-        render={
-          <Button className="bg-primary text-primary-foreground hover:brightness-110" />
-        }
-      >
-        {triggerLabel}
-      </DialogTrigger>
+      <DialogTrigger render={<Button />}>{triggerLabel}</DialogTrigger>
 
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -198,7 +192,6 @@ export function AddSiteModal({
               type="button"
               onClick={handleAddSite}
               disabled={!selectedProperty || loading || adding}
-              className="bg-primary text-primary-foreground hover:brightness-110"
             >
               {adding ? "Connecting…" : "Connect site"}
             </Button>

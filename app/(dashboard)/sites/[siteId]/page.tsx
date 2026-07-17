@@ -81,7 +81,7 @@ export default async function SiteOverviewPage({ params }: SitePageProps) {
           <Link
             key={path}
             href={`/sites/${siteId}/${path}`}
-            className="rounded-lg border border-border/70 bg-panel/60 px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:border-signal/40 hover:text-signal"
+            className="rounded-lg border border-border bg-card px-3 py-1.5 text-atom-caption font-medium text-muted-foreground shadow-[var(--shadow-1)] transition hover:border-primary hover:text-primary"
           >
             {label}
           </Link>

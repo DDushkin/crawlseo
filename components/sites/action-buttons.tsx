@@ -38,12 +38,13 @@ export function CrawlButton({ siteId }: { siteId: string }) {
         variant="outline"
         disabled={loading}
         onClick={run}
-        className="border-border/80"
       >
         {loading ? "Crawling…" : "Run crawl"}
       </Button>
       {msg && (
-        <p className={cn("text-xs", err ? "text-danger" : "text-signal")}>{msg}</p>
+        <p className={cn("text-atom-caption", err ? "text-danger" : "text-signal")}>
+          {msg}
+        </p>
       )}
     </div>
   );
@@ -80,12 +81,13 @@ export function VitalsButton({ siteId }: { siteId: string }) {
         variant="outline"
         disabled={loading}
         onClick={run}
-        className="border-border/80"
       >
         {loading ? "Checking…" : "Check vitals"}
       </Button>
       {msg && (
-        <p className={cn("text-xs", err ? "text-danger" : "text-signal")}>{msg}</p>
+        <p className={cn("text-atom-caption", err ? "text-danger" : "text-signal")}>
+          {msg}
+        </p>
       )}
     </div>
   );
@@ -127,7 +129,6 @@ export function IndexCheckButton({ siteId }: { siteId: string }) {
         variant="outline"
         disabled={loading}
         onClick={run}
-        className="border-border/80"
       >
         {loading ? "Inspecting…" : "Check index status"}
       </Button>
@@ -136,7 +137,7 @@ export function IndexCheckButton({ siteId }: { siteId: string }) {
           {results.map((r) => (
             <div
               key={r.url + (r.coverageState || r.error)}
-              className="rounded-lg border border-border/50 bg-panel/60 px-3 py-2 text-xs"
+              className="rounded-lg border border-border bg-card px-3 py-2 text-atom-caption shadow-[var(--shadow-1)]"
             >
               <p className="truncate font-medium text-foreground">{r.url}</p>
               <p className={r.ok === false ? "text-danger" : "text-signal"}>
@@ -155,13 +156,13 @@ export function ExportLinks({ siteId }: { siteId: string }) {
     <div className="flex flex-wrap gap-2">
       <a
         href={`/api/sites/${siteId}/export?type=keywords`}
-        className="inline-flex h-8 items-center rounded-lg border border-border/80 px-3 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-atom-caption font-medium text-muted-foreground shadow-[var(--shadow-1)] transition hover:bg-muted hover:text-foreground"
       >
         Export keywords CSV
       </a>
       <a
         href={`/api/sites/${siteId}/export?type=pages`}
-        className="inline-flex h-8 items-center rounded-lg border border-border/80 px-3 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-atom-caption font-medium text-muted-foreground shadow-[var(--shadow-1)] transition hover:bg-muted hover:text-foreground"
       >
         Export pages CSV
       </a>

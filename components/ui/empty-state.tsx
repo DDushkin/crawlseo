@@ -18,15 +18,19 @@ export function EmptyState({
 }) {
   return (
     <div className={cn("panel px-6 py-14 text-center", className)}>
-      <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full border border-signal/20 bg-signal-muted font-mono text-lg text-signal">
+      <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-accent text-lg text-primary shadow-[var(--shadow-1)]">
         {icon}
       </div>
-      <h3 className="font-heading text-lg font-semibold text-foreground">{title}</h3>
-      <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{description}</p>
+      <h3 className="font-heading text-atom-subheader font-semibold text-foreground">
+        {title}
+      </h3>
+      <p className="mx-auto mt-2 max-w-md text-atom-body text-muted-foreground">
+        {description}
+      </p>
       {actionLabel && actionHref && (
         <Link
           href={actionHref}
-          className="mt-6 inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:brightness-110"
+          className="mt-6 inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-[var(--shadow-1)] transition hover:bg-[var(--a-info-800)]"
         >
           {actionLabel}
         </Link>

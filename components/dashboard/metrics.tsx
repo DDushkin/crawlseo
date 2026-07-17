@@ -24,29 +24,26 @@ function MetricCard({
   const good = delta > 0;
 
   return (
-    <div className="panel relative overflow-hidden p-5">
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-signal/40 to-transparent" />
-      <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+    <div className="panel relative p-5">
+      <p className="text-atom-caption font-semibold uppercase tracking-[0.1em] text-muted-foreground">
         {label}
       </p>
       <div className="mt-3 flex items-end justify-between gap-3">
-        <p className="font-heading text-3xl font-semibold tracking-tight text-foreground">
+        <p className="font-heading text-atom-display1 font-semibold tracking-tight text-foreground">
           {value}
         </p>
         <div
           className={cn(
             "rounded-md px-2 py-1 font-data text-xs font-semibold",
-            isFlat
-              ? "bg-muted text-muted-foreground"
-              : good
-                ? "bg-signal-muted text-signal"
-                : "bg-danger/10 text-danger"
+            isFlat && "bg-muted text-muted-foreground",
+            !isFlat && good && "bg-signal-muted text-signal",
+            !isFlat && !good && "bg-[var(--a-danger-300)] text-[var(--a-danger-900)]"
           )}
         >
           {isFlat ? "—" : deltaLabel}
         </div>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">
+      <p className="mt-2 text-atom-caption text-muted-foreground">
         {hint ?? "vs previous period"}
       </p>
     </div>

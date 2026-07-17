@@ -21,18 +21,18 @@ export async function TopKeywords({
 
   return (
     <div className="panel overflow-hidden">
-      <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
+      <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <div>
-          <h3 className="font-heading text-lg font-semibold text-foreground">
+          <h3 className="font-heading text-atom-subheader font-semibold text-foreground">
             Top keywords
           </h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-atom-caption text-muted-foreground">
             Ranked by clicks · last {days} days
           </p>
         </div>
         <Link
           href={`/sites/${siteId}/keywords`}
-          className="text-sm font-medium text-signal hover:underline"
+          className="text-sm font-medium text-primary hover:underline"
         >
           View all
         </Link>

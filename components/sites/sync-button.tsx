@@ -60,11 +60,7 @@ export function SyncButton({
       <Button
         onClick={handleSync}
         disabled={loading}
-        className={cn(
-          "bg-primary text-primary-foreground hover:brightness-110",
-          fullWidth && "w-full",
-          className
-        )}
+        className={cn(fullWidth && "w-full", className)}
         size="sm"
       >
         {loading ? "Syncing…" : "Sync GSC"}
@@ -72,7 +68,7 @@ export function SyncButton({
       {message && (
         <p
           className={cn(
-            "text-xs",
+            "text-atom-caption",
             error ? "text-danger" : "text-signal",
             fullWidth && "text-center"
           )}

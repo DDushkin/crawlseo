@@ -14,7 +14,6 @@ export function NavLink({
   exact?: boolean;
 }) {
   const pathname = usePathname();
-  // Avoid /sites matching /sites/[id] when exact is set on the list route
   const active = exact
     ? pathname === href
     : pathname === href || pathname.startsWith(`${href}/`);
@@ -23,10 +22,10 @@ export function NavLink({
     <Link
       href={href}
       className={cn(
-        "flex items-center rounded-lg px-3 py-2 font-medium transition-colors",
+        "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200",
         active
-          ? "bg-sidebar-accent text-signal shadow-[inset_2px_0_0_0_oklch(0.84_0.18_145)]"
-          : "text-sidebar-foreground/75 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground"
+          ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_3px_0_0_0_var(--primary)]"
+          : "text-sidebar-foreground/80 hover:bg-muted hover:text-foreground"
       )}
     >
       {children}
