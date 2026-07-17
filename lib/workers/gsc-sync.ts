@@ -93,6 +93,9 @@ export async function syncGSCDataForSite(
             impressions: keyword.impressions,
             ctr: keyword.ctr,
             position: keyword.position,
+            page: keyword.page,
+            device: keyword.device,
+            country: keyword.country,
           },
         });
 
