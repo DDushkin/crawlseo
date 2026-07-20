@@ -14,6 +14,9 @@ import {
   Bell,
   Settings,
   Bookmark,
+  Bot,
+  Link as LinkIcon,
+  SearchCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -22,6 +25,11 @@ type NavItem = {
   label: string;
   icon: LucideIcon;
   exact?: boolean;
+};
+
+type NavGroup = {
+  label: string;
+  items: NavItem[];
 };
 
 export function SidebarNav({
@@ -36,56 +44,66 @@ export function SidebarNav({
   const activeSiteId =
     match?.[1] && sites.some((s) => s.id === match[1]) ? match[1] : undefined;
 
-  const generalNav: NavItem[] = [
-    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/sites", label: "Sites", icon: Globe, exact: true },
-  ];
+  const overviewNav: NavGroup = {
+    label: "Overview",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/sites", label: "Sites", icon: Globe, exact: true },
+    ],
+  };
 
-  const siteNav: NavItem[] = activeSiteId
-    ? [
-        { href: `/sites/${activeSiteId}`, label: "Overview", icon: LayoutDashboard, exact: true },
-        { href: `/sites/${activeSiteId}/keywords`, label: "Keywords", icon: Search },
-        { href: `/sites/${activeSiteId}/saved-keywords`, label: "Saved Keywords", icon: Bookmark },
-        { href: `/sites/${activeSiteId}/pages`, label: "Pages", icon: FileText },
-        { href: `/sites/${activeSiteId}/crawl`, label: "Crawl / Audit", icon: Bug },
-        { href: `/sites/${activeSiteId}/vitals`, label: "Vitals", icon: Gauge },
-        { href: `/sites/${activeSiteId}/opportunities`, label: "Opportunities", icon: Lightbulb },
-        { href: `/sites/${activeSiteId}/alerts`, label: "Alerts", icon: Bell },
-        { href: `/sites/${activeSiteId}/settings`, label: "Settings", icon: Settings },
-      ]
-    : [];
+  const workspaceNav: NavGroup | null = activeSiteId
+    ? {
+        label: "Workspace",
+        items: [
+          { href: `/sites/${activeSiteId}`, label: "Overview", icon: LayoutDashboard, exact: true },
+          { href: `/sites/${activeSiteId}/keywords`, label: "Keywords", icon: Search },
+          { href: `/sites/${activeSiteId}/saved-keywords`, label: "Saved Keywords", icon: Bookmark },
+          { href: `/sites/${activeSiteId}/pages`, label: "Pages", icon: FileText },
+          { href: `/sites/${activeSiteId}/crawl`, label: "Crawl / Audit", icon: Bug },
+          { href: `/sites/${activeSiteId}/vitals`, label: "Vitals", icon: Gauge },
+          { href: `/sites/${activeSiteId}/opportunities`, label: "Opportunities", icon: Lightbulb },
+          { href: `/sites/${activeSiteId}/alerts`, label: "Alerts", icon: Bell },
+        ],
+      }
+    : null;
+
+  const researchNav: NavGroup | null = activeSiteId
+    ? {
+        label: "Research",
+        items: [
+          { href: `/sites/${activeSiteId}/keyword-research`, label: "Keyword Research", icon: SearchCheck },
+          { href: `/sites/${activeSiteId}/domain-overview`, label: "Domain Overview", icon: Globe },
+          { href: `/sites/${activeSiteId}/backlinks`, label: "Backlinks", icon: LinkIcon },
+        ],
+      }
+    : null;
+
+  const connectNav: NavGroup | null = activeSiteId
+    ? {
+        label: "Connect",
+        items: [
+          { href: `/sites/${activeSiteId}/mcp`, label: "AI & MCP", icon: Bot },
+          { href: `/sites/${activeSiteId}/settings`, label: "Settings", icon: Settings },
+        ],
+      }
+    : null;
+
+  const groups = [overviewNav, workspaceNav, researchNav, connectNav].filter(
+    (g): g is NavGroup => g !== null
+  );
 
   return (
     <nav className="flex-1 space-y-5 overflow-y-auto px-2 text-sm">
-      {/* General */}
-      <div>
-        {!collapsed && (
-          <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            General
-          </p>
-        )}
-        <div className="space-y-0.5">
-          {generalNav.map((item) => (
-            <SidebarLink
-              key={item.href}
-              item={item}
-              pathname={pathname}
-              collapsed={collapsed}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Workspace (site selected) */}
-      {siteNav.length > 0 && (
-        <div>
+      {groups.map((group) => (
+        <div key={group.label}>
           {!collapsed && (
             <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              Workspace
+              {group.label}
             </p>
           )}
           <div className="space-y-0.5">
-            {siteNav.map((item) => (
+            {group.items.map((item) => (
               <SidebarLink
                 key={item.href}
                 item={item}
@@ -95,7 +113,7 @@ export function SidebarNav({
             ))}
           </div>
         </div>
-      )}
+      ))}
 
       {/* Properties quick list */}
       {!collapsed && sites.length > 1 && (

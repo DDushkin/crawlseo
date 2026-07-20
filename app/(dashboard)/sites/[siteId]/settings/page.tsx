@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { DeleteSiteButton } from "@/components/sites/delete-site-button";
+import { ApiKeysSection } from "@/components/settings/api-keys-section";
 
 interface Props {
   params: Promise<{ siteId: string }>;
@@ -32,6 +33,21 @@ export default async function SettingsPage({ params }: Props) {
     },
   });
   if (!site || site.userId !== session?.user?.id) redirect("/sites");
+
+  // Check API key status
+  const apiKeys = await db.apiKey.findMany({
+    where: { userId: session.user.id },
+    select: { provider: true, updatedAt: true },
+  });
+  const apiKeyStatus: Record<string, { connected: boolean; updatedAt?: string }> = {
+    dataforseo: { connected: false },
+  };
+  for (const key of apiKeys) {
+    apiKeyStatus[key.provider] = {
+      connected: true,
+      updatedAt: key.updatedAt.toISOString(),
+    };
+  }
 
   return (
     <div>
@@ -70,6 +86,9 @@ export default async function SettingsPage({ params }: Props) {
             </div>
           </dl>
         </div>
+
+        {/* External API Keys */}
+        <ApiKeysSection initialStatus={apiKeyStatus} />
 
         {/* Data summary */}
         <div className="panel p-5">
