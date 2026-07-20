@@ -1,345 +1,218 @@
+<div align="center">
+
+<img src="docs/screenshots/logo.png" alt="CrawlSEO" width="80" />
+
 # CrawlSEO
 
-**Open-source SEO monitoring for founders**
+### Open-source SEO monitoring for founders, not SEO specialists
 
-Google Search Console data + Site Crawler + Core Web Vitals in one dashboard. Self-hosted. Free forever.
+Google Search Console + Site Crawler + Core Web Vitals + MCP Server — all in one self-hosted dashboard. Free forever.
 
-> [!NOTE]
-> **Phase 1 (Foundation) is complete** ✅
-> - User authentication with Google OAuth
-> - Multi-site GSC data sync
-> - Dashboard with KPIs and traffic charts
-> - Keywords and pages tables with sorting/filtering
-> 
-> **Phase 2-4** coming soon (crawler, Core Web Vitals, alerts, correlation view)
+[![GitHub stars](https://img.shields.io/github/stars/crawlseo/crawlseo?style=flat-square)](https://github.com/crawlseo/crawlseo/stargazers)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
+[![Docker](https://img.shields.io/badge/docker-ready-blue?style=flat-square&logo=docker)](docker-compose.yml)
+
+</div>
+
+---
+
+<!-- TODO: Replace with actual screenshot -->
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="CrawlSEO Dashboard" width="800" />
+</p>
 
 ## Why CrawlSEO?
 
-| | CrawlSEO | Ahrefs | Semrush | Moz | SEO Gets |
-|---|---|---|---|---|---|
-| **Price** | **Free** | €119/mo | $139/mo | $49/mo | $14/mo |
-| **Self-hosted** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **GSC data** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Site crawler** | 🚧 Phase 2 | ✅ | ✅ | ✅ | ❌ |
-| **Core Web Vitals** | 🚧 Phase 3 | ❌ | ✅ | ❌ | ❌ |
-| **Open source** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Your data stays yours** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| | CrawlSEO | OpenSEO | Ahrefs | Semrush | Moz |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **Price** | **Free** | $10/mo | €119/mo | $139/mo | $49/mo |
+| **Self-hosted** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **GSC integration** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Site crawler** | ✅ (2000 pages) | ✅ | ✅ | ✅ | ✅ |
+| **Core Web Vitals** | ✅ | ❌ | ❌ | ✅ | ❌ |
+| **MCP Server** | ✅ (10 tools) | ✅ (24 tools) | ❌ | ❌ | ❌ |
+| **AI agent ready** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Keyword Research** | ✅ (BYOK) | ✅ | ✅ | ✅ | ✅ |
+| **Backlinks** | ✅ (BYOK) | ✅ | ✅ | ✅ | ✅ |
+| **Open source** | ✅ MIT | ✅ | ❌ | ❌ | ❌ |
+| **Your data stays yours** | ✅ | ✅ | ❌ | ❌ | ❌ |
+
+> **BYOK** = Bring Your Own Key. Keyword research and backlink data use DataForSEO (optional). Google Autocomplete suggestions work as a free fallback.
+
+## Features
+
+| | Feature | Description |
+|---|---|---|
+| 🔍 | **GSC Analytics** | Keywords, pages, clicks, impressions, position tracking with 28-day comparison |
+| 🕷️ | **Site Crawler** | Crawl up to 2,000 pages with concurrent fetching, health score, and 16 issue types |
+| ⚡ | **Core Web Vitals** | LCP, CLS, INP, TTFB via PageSpeed Insights with mobile/desktop comparison |
+| 🤖 | **MCP Server** | 10 tools for Claude Code, Claude Desktop, and Cursor — query SEO data from your AI agent |
+| 🔑 | **Keyword Research** | DataForSEO-powered keyword ideas with volume, difficulty, CPC. Free Google Autocomplete fallback |
+| 🔗 | **Backlinks** | Backlink profile, referring domains, anchor text, dofollow/nofollow analysis |
+| 📊 | **Rank Tracking** | Historical position snapshots with saved keywords and notes |
+| 💡 | **SEO Opportunities** | Striking distance keywords, low CTR, content decay, cannibalization detection |
+| 🔔 | **Alerts** | Traffic drops, position changes, new 404s, vitals degradation — via email, Slack, Telegram, webhook |
+| 📥 | **CSV Export** | Export keywords and pages data for offline analysis |
+| 🌗 | **Dark / Light theme** | Atomize PRO design system with smooth theme toggle |
+
+<!-- TODO: Replace with actual screenshots -->
+<details>
+<summary>📸 Screenshots</summary>
+
+| Dashboard | Keywords | Crawl / Audit |
+|---|---|---|
+| <img src="docs/screenshots/dashboard.png" width="280" /> | <img src="docs/screenshots/keywords.png" width="280" /> | <img src="docs/screenshots/crawl.png" width="280" /> |
+
+| Core Web Vitals | Keyword Research | AI & MCP |
+|---|---|---|
+| <img src="docs/screenshots/vitals.png" width="280" /> | <img src="docs/screenshots/keyword-research.png" width="280" /> | <img src="docs/screenshots/mcp.png" width="280" /> |
+
+</details>
 
 ## Quick Start
 
-### Using Docker Compose (Recommended)
-
 ```bash
-# Clone and navigate
 git clone https://github.com/crawlseo/crawlseo.git
 cd crawlseo
-
-# Copy environment template and configure
 cp .env.example .env.local
-# Edit .env.local with your Google OAuth credentials
-
-# Start with Docker
-docker compose up
-
-# Visit http://localhost:3000
-```
-
-Takes ~2 minutes to have the full stack running (database, Next.js app, migrations).
-
-### Local Development
-
-```bash
-# Prerequisites: Node.js 20+, PostgreSQL running locally or via Docker
-
-# Install dependencies
-npm install
-
-# Setup environment
-cp .env.example .env.local
-# Edit .env.local with your Google OAuth credentials
-
-# Start database (if using Docker)
+# Add your Google OAuth credentials to .env.local
 docker compose up -d db
-
-# Initialize schema
-npx prisma migrate dev
-
-# Start dev server
+npm install
+npx prisma migrate dev --name init
 npm run dev
 ```
 
-Visit http://localhost:3000, sign in with Google, and add your first GSC property.
+Open [http://localhost:3000](http://localhost:3000), sign in with Google, and add your first site.
 
-**Full setup guide**: See [DEVELOPMENT.md](./DEVELOPMENT.md)
+<details>
+<summary>🔑 Getting Google OAuth credentials</summary>
 
-## Features (Phase 1 ✅)
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project (or select existing)
+3. Enable the **Google Search Console API**
+4. Go to **Credentials** → **Create Credentials** → **OAuth 2.0 Client ID**
+5. Application type: **Web application**
+6. Authorized redirect URI: `http://localhost:3000/api/auth/callback/google`
+7. Copy Client ID and Client Secret to `.env.local`
 
-- ✅ **Google OAuth Authentication** - Secure login with Google
-- ✅ **Multi-site Management** - Connect multiple GSC properties  
-- ✅ **Automatic GSC Sync** - Daily keyword and page metrics
-- ✅ **Dashboard Overview** - KPI cards with 28-day comparison
-- ✅ **Traffic Trends** - 90-day line chart (clicks + impressions)
-- ✅ **Keywords Table** - Top keywords with position, clicks, impressions, CTR
-- ✅ **Pages Table** - Top pages with metrics
-- ✅ **Site Switcher** - Quick access to multiple sites
-- ✅ **Responsive Design** - Desktop and mobile friendly
+Required scopes: `openid`, `email`, `profile`, `https://www.googleapis.com/auth/webmasters.readonly`
 
-## Coming Soon
+</details>
 
-**Phase 2: Crawler** (Week 3-4)
-- [ ] Site crawler engine
-- [ ] Technical SEO checks (meta tags, H1, images, schema, structured data)
-- [ ] Health score calculation
-- [ ] Crawl issues dashboard
+## MCP Server — AI Agent Integration
 
-**Phase 3: Core Web Vitals** (Week 5)
-- [ ] PageSpeed Insights integration
-- [ ] LCP, CLS, INP metrics
-- [ ] Mobile vs Desktop comparison
-- [ ] Performance trends
+CrawlSEO includes a Model Context Protocol server so AI agents can query your SEO data directly.
 
-**Phase 4: Alerts & Insights** (Week 6)
-- [ ] Alert rules (traffic drop, position change, 404s, vitals)
-- [ ] Email, Telegram, Slack, Webhook notifications
-- [ ] Correlation view (positions ↓ + vitals ↓ + crawl issues)
+Add to your Claude Code settings (`.claude/settings.json`):
 
-**Phase 5: Polish & Launch** (Week 7-8)
-- [ ] CSV export
-- [ ] Deploy buttons (Railway, Render, Fly.io)
-- [ ] Landing page
-- [ ] Public launch
+```json
+{
+  "mcpServers": {
+    "crawlseo": {
+      "command": "npx",
+      "args": ["tsx", "mcp/server.ts"],
+      "cwd": "/path/to/crawlseo"
+    }
+  }
+}
+```
+
+**10 tools available:**
+
+| Category | Tools |
+|---|---|
+| **Sites** | `list_sites`, `get_site_overview` |
+| **Keywords & Pages** | `get_keywords`, `get_pages`, `get_traffic` |
+| **Crawl & Audit** | `run_crawl`, `get_crawl_status`, `get_crawl_issues` |
+| **Performance** | `get_vitals`, `get_opportunities` |
+
+Works with Claude Code, Claude Desktop, and Cursor. See [`mcp/README.md`](mcp/README.md) for full setup guide.
 
 ## Tech Stack
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| **Framework** | Next.js 14+ | Full-stack, SSR, proven at scale |
-| **Language** | TypeScript | Type safety, better DX |
-| **Database** | PostgreSQL | Universal, scalable analytics queries |
-| **ORM** | Prisma | Best TS ORM, migrations, type generation |
-| **Auth** | NextAuth.js | Google OAuth built-in, simple session management |
-| **UI** | Tailwind CSS + shadcn/ui | Fast to build, component reuse |
-| **Charts** | Recharts | React-native, simple API |
-| **Deployment** | Docker Compose | Self-hosted, industry standard |
+| Layer | Technology |
+|---|---|
+| **Framework** | [Next.js 16](https://nextjs.org/) (App Router) |
+| **Language** | [TypeScript](https://www.typescriptlang.org/) |
+| **Database** | [PostgreSQL](https://www.postgresql.org/) |
+| **ORM** | [Prisma](https://www.prisma.io/) |
+| **Auth** | [NextAuth.js v5](https://authjs.dev/) |
+| **UI** | [shadcn/ui](https://ui.shadcn.com/) + [Tailwind CSS v4](https://tailwindcss.com/) |
+| **Charts** | [Recharts](https://recharts.org/) |
+| **Icons** | [Lucide React](https://lucide.dev/) |
+| **MCP** | [@modelcontextprotocol/sdk](https://modelcontextprotocol.io/) |
+| **Deployment** | Docker Compose |
 
-## Architecture
+## Self-Hosting
 
-```
-CrawlSEO (Next.js monorepo)
-├── Frontend (React/Next.js)
-│   ├── Authentication (Google OAuth)
-│   ├── Dashboard (KPIs, charts, tables)
-│   ├── Site Management (add/delete sites)
-│   ├── Keywords Table (search, sort, filter)
-│   ├── Pages Table (search, sort, filter)
-│   └── Responsive UI (Tailwind + shadcn/ui)
-│
-├── Backend (Next.js API routes)
-│   ├── Auth endpoints (/api/auth/*)
-│   ├── Sites CRUD (/api/sites/*)
-│   ├── GSC integration (/api/gsc/*)
-│   └── Health check (/api/health)
-│
-├── Workers
-│   ├── GSC sync (daily keywords + pages)
-│   ├── Crawl engine (Phase 2)
-│   ├── Vitals check (Phase 3)
-│   └── Alert evaluation (Phase 4)
-│
-├── Database (PostgreSQL)
-│   ├── Users & Sessions (auth)
-│   ├── Sites & Properties (GSC config)
-│   ├── Keywords & Pages (GSC data)
-│   ├── Crawls & Issues (Phase 2)
-│   ├── Vitals Reports (Phase 3)
-│   └── Alerts (Phase 4)
-│
-└── External APIs (all free)
-    ├── Google Search Console API
-    ├── PageSpeed Insights API
-    └── URL Inspection API
-```
-
-## Environment Setup
-
-Create `.env.local` from `.env.example`:
+### Docker Compose (recommended)
 
 ```bash
-# Database (required)
-DATABASE_URL=postgresql://crawlseo:crawlseo@localhost:5432/crawlseo
-
-# NextAuth (required)
-APP_SECRET=<generate: openssl rand -hex 32>
-
-# Google OAuth (required)
-# Get from: https://console.cloud.google.com/
-# Scopes: openid, email, profile, https://www.googleapis.com/auth/webmasters.readonly
-GOOGLE_CLIENT_ID=<your-client-id>
-GOOGLE_CLIENT_SECRET=<your-client-secret>
-
-# Optional
-NEXTAUTH_URL=http://localhost:3000
-NODE_ENV=development
-```
-
-## Database Schema
-
-**Key Tables:**
-- **User** - Accounts with encrypted Google OAuth tokens
-- **Site** - GSC properties connected by user
-- **Keyword** - Search query metrics (clicks, impressions, position, CTR)
-- **Page** - Page metrics aggregated by URL
-- **Crawl** - Site crawl results with health score
-- **CrawlIssue** - Technical issues found during crawl
-- **VitalsReport** - Core Web Vitals and Lighthouse scores
-- **Alert** - Alert rules for notifications
-
-All models include proper indexing and cascade deletes. See [prisma/schema.prisma](./prisma/schema.prisma) for full schema.
-
-## API Routes
-
-**Auth** (NextAuth.js)
-```
-POST /api/auth/signin/google
-GET  /api/auth/callback/google
-POST /api/auth/signout
-```
-
-**Sites CRUD**
-```
-GET    /api/sites              # List user's sites
-POST   /api/sites              # Create site
-GET    /api/sites/[siteId]     # Get site details
-PUT    /api/sites/[siteId]     # Update site
-DELETE /api/sites/[siteId]     # Delete site (cascades)
-```
-
-**Google Search Console**
-```
-GET  /api/gsc/properties       # List GSC properties
-POST /api/gsc/sync             # Trigger manual sync
-```
-
-**Health**
-```
-GET  /api/health               # Health check for Docker
-```
-
-All routes require authentication (OAuth session).
-
-## Development
-
-```bash
-# Start dev server with hot reload
-npm run dev
-
-# Build for production
-npm run build
-
-# Run production build
-npm run start
-
-# Lint code
-npm run lint
-
-# View database (Prisma Studio)
-npx prisma studio
-
-# Reset database (dev only)
-npx prisma db push --skip-generate --force-reset
-```
-
-## Docker Deployment
-
-The included `docker-compose.yml` runs the full stack:
-
-```bash
-# Build and start
+git clone https://github.com/crawlseo/crawlseo.git
+cd crawlseo
+cp .env.example .env.local
+# Edit .env.local with your credentials
 docker compose up --build
-
-# View logs
-docker compose logs -f app
-docker compose logs -f db
-
-# Stop all services
-docker compose down
-
-# Remove database volume
-docker compose down -v
 ```
 
-The `Dockerfile` uses multi-stage builds:
-1. **deps** - Install dependencies
-2. **builder** - Build Next.js app
-3. **runner** - Minimal production image
+The full stack (PostgreSQL + Next.js) starts in ~2 minutes. Migrations run automatically.
 
-Migrations run automatically on startup. Database must be healthy before app starts.
+### Railway
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template)
+
+1. Click the button above
+2. Add environment variables (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`)
+3. Railway provisions PostgreSQL automatically
+
+### Manual
+
+```bash
+# Prerequisites: Node.js 20+, PostgreSQL
+
+npm install
+cp .env.example .env.local
+# Configure .env.local
+
+npx prisma migrate deploy
+npm run build
+npm start
+```
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `NEXTAUTH_SECRET` | Yes | Session encryption key (`openssl rand -hex 32`) |
+| `GOOGLE_CLIENT_ID` | Yes | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth client secret |
+| `NEXTAUTH_URL` | No | Base URL (auto-detected in most environments) |
 
 ## Contributing
 
-Contributions are welcome! Please:
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Commit with conventional messages: `git commit -m 'feat: add feature'`
-4. Push: `git push origin feature/your-feature`
-5. Open a Pull Request
-
-See [DEVELOPMENT.md](./DEVELOPMENT.md) for local setup and testing.
-
-## Troubleshooting
-
-**Can't connect to database:**
 ```bash
-docker compose ps              # Check if containers are running
-docker compose logs db         # View database logs
-docker compose restart db      # Restart database
+# Fork the repo, then:
+git checkout -b feature/your-feature
+# Make your changes
+git commit -m "feat: add your feature"
+git push origin feature/your-feature
+# Open a Pull Request
 ```
-
-**OAuth not working:**
-1. Verify credentials in `.env.local`
-2. Check Google Cloud Console redirect URI: `http://localhost:3000/api/auth/callback/google`
-3. Ensure GSC scopes are enabled
-4. Check browser console for errors
-
-**No GSC data appearing:**
-1. Verify account has GSC property access
-2. Manually trigger sync via API: `POST /api/gsc/sync`
-3. Check server logs and browser console
-
-**Database migration failed:**
-```bash
-npx prisma migrate reset       # Reset and re-seed
-npx prisma db push            # Push schema directly
-```
-
-## Roadmap & Status
-
-- [x] Phase 1: Foundation (auth, GSC sync, dashboard, tables)
-- [ ] Phase 2: Crawler (technical SEO, health score)
-- [ ] Phase 3: Core Web Vitals (PageSpeed, trends)
-- [ ] Phase 4: Alerts (multi-channel, correlation view)
-- [ ] Phase 5: Polish (exports, landing page, launch)
-
-See [PLAN.md](./PLAN.md) for detailed implementation plan.
 
 ## License
 
-MIT License - see [LICENSE](./LICENSE) file
+MIT License — see [LICENSE](LICENSE) for details.
 
-## Support & Community
+---
 
-- **Issues**: [GitHub Issues](https://github.com/crawlseo/crawlseo/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/crawlseo/crawlseo/discussions)
+<div align="center">
 
-## Credits
+Built by [Brandson Digital](https://brandson.digital) · Created by [Mike](https://m1ke.digital)
 
-Built with ❤️ by [Brandson Digital](https://brandson.digital) • Created by [Mike](https://m1ke.digital)
+Self-hosted SEO tools should be free. Your data should be yours.
 
-> Self-hosted SEO tools should be free. Your data should be yours.
-
-**Special thanks to:**
-- [Next.js](https://nextjs.org/) team
-- [Prisma](https://prisma.io/) for amazing ORM
-- [shadcn/ui](https://ui.shadcn.com/) for component library
-- [Google](https://developers.google.com/) for free APIs
+</div>

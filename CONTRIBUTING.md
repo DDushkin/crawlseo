@@ -1,0 +1,86 @@
+# Contributing to CrawlSEO
+
+Thanks for your interest in contributing! CrawlSEO is open source and we welcome contributions of all kinds.
+
+## Getting Started
+
+1. **Fork** the repository on GitHub
+2. **Clone** your fork locally:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/crawlseo.git
+   cd crawlseo
+   ```
+3. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+4. **Set up the database**:
+   ```bash
+   cp .env.example .env.local
+   # Edit .env.local with your credentials
+   docker compose up -d db
+   npx prisma migrate dev
+   ```
+5. **Start the dev server**:
+   ```bash
+   npm run dev
+   ```
+
+## Making Changes
+
+1. Create a feature branch from `main`:
+   ```bash
+   git checkout -b feature/your-feature
+   ```
+2. Make your changes
+3. Run the linter:
+   ```bash
+   npm run lint
+   ```
+4. Build to check for errors:
+   ```bash
+   npm run build
+   ```
+5. Commit with a [conventional commit](https://www.conventionalcommits.org/) message:
+   ```bash
+   git commit -m "feat: add your feature"
+   ```
+6. Push and open a Pull Request:
+   ```bash
+   git push origin feature/your-feature
+   ```
+
+## Commit Message Format
+
+We use conventional commits:
+
+- `feat:` — New feature
+- `fix:` — Bug fix
+- `style:` — UI/CSS changes (no logic change)
+- `refactor:` — Code refactoring
+- `docs:` — Documentation
+- `chore:` — Maintenance tasks
+
+## Pull Request Guidelines
+
+- Keep PRs focused — one feature or fix per PR
+- Include a clear description of what changed and why
+- Update documentation if your change affects the public API or user-facing behavior
+- Make sure the build passes before requesting review
+
+## Reporting Issues
+
+- Use [GitHub Issues](https://github.com/crawlseo/crawlseo/issues)
+- Search existing issues before creating a new one
+- Include steps to reproduce, expected behavior, and actual behavior
+
+## Code Style
+
+- TypeScript for all code
+- Use existing patterns in the codebase as a guide
+- Follow the project's component and file structure conventions
+- No unnecessary abstractions — keep it simple
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the MIT License.

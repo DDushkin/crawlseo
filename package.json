@@ -2,6 +2,23 @@
   "name": "crawlseo",
   "version": "0.1.0",
   "private": true,
+  "description": "Open-source SEO monitoring. GSC + Crawler + Core Web Vitals + MCP in one dashboard.",
+  "homepage": "https://github.com/crawlseo/crawlseo",
+  "repository": "https://github.com/crawlseo/crawlseo",
+  "license": "MIT",
+  "author": "Brandson Digital",
+  "keywords": [
+    "seo",
+    "seo-tools",
+    "google-search-console",
+    "open-source",
+    "self-hosted",
+    "mcp",
+    "nextjs",
+    "site-crawler",
+    "core-web-vitals",
+    "seo-monitoring"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
