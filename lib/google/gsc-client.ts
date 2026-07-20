@@ -22,6 +22,12 @@ interface SearchAnalyticsRow {
   position: number;
 }
 
+export type GSCFilter = {
+  dimension: 'query' | 'page' | 'device' | 'country';
+  operator: 'equals' | 'notEquals' | 'contains' | 'notContains';
+  expression: string;
+};
+
 export interface KeywordData {
   query: string;
   page?: string;
@@ -147,7 +153,8 @@ export async function fetchSearchAnalytics(
   siteUrl: string,
   startDate: string,
   endDate: string,
-  dimensions: string[] = ["query", "page", "date", "device", "country"]
+  dimensions: string[] = ["query", "page", "date", "device", "country"],
+  filters?: GSCFilter[]
 ): Promise<KeywordData[]> {
   const accessToken = await getAccessToken(userId);
 
@@ -171,6 +178,9 @@ export async function fetchSearchAnalytics(
           dimensions,
           rowLimit,
           startRow,
+          ...(filters?.length && {
+            dimensionFilterGroups: [{ filters }],
+          }),
         }),
       }
     );

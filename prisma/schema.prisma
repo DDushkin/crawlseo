@@ -71,12 +71,14 @@ model Site {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  keywords    Keyword[]
-  pages       Page[]
-  crawls      Crawl[]
-  vitals      VitalsReport[]
-  alerts      Alert[]
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keywords      Keyword[]
+  pages         Page[]
+  crawls        Crawl[]
+  vitals        VitalsReport[]
+  alerts        Alert[]
+  savedKeywords SavedKeyword[]
+  rankSnapshots RankSnapshot[]
 
   @@unique([userId, domain])
 }
@@ -120,6 +122,40 @@ model Page {
   @@index([siteId, url, date])
 }
 
+// ============ SAVED KEYWORDS ============
+
+model SavedKeyword {
+  id        String   @id @default(cuid())
+  siteId    String
+  query     String
+  notes     String?
+  createdAt DateTime @default(now())
+
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, query])
+  @@index([siteId])
+}
+
+// ============ RANK TRACKING ============
+
+model RankSnapshot {
+  id          String   @id @default(cuid())
+  siteId      String
+  query       String
+  position    Float
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  page        String?
+  date        DateTime
+
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, query, date])
+  @@index([siteId, date])
+  @@index([siteId, query, date])
+}
+
 // ============ CRAWLER ============
 
 model Crawl {
@@ -131,9 +167,12 @@ model Crawl {
   pagesFound  Int         @default(0)
   issuesFound Int         @default(0)
   healthScore Int?        // 0-100
+  maxPages    Int         @default(200)
 
-  site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  site        Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
   issues      CrawlIssue[]
+  auditPages  AuditPage[]
+  auditLinks  AuditLink[]
 
   @@index([siteId, startedAt])
 }
@@ -143,6 +182,64 @@ enum CrawlStatus {
   RUNNING
   COMPLETED
   FAILED
+}
+
+// ============ AUDIT PAGE DATA ============
+
+model AuditPage {
+  id              String  @id @default(cuid())
+  crawlId         String
+  url             String
+  statusCode      Int
+  redirectUrl     String?
+
+  title           String?
+  description     String?
+  canonical       String?
+  robotsMeta      String?
+
+  h1Count         Int     @default(0)
+  h1s             Json?   // Array of H1 text
+  wordCount       Int     @default(0)
+
+  imageCount      Int     @default(0)
+  imagesMissingAlt Int    @default(0)
+
+  internalLinks   Int     @default(0)
+  externalLinks   Int     @default(0)
+
+  hasSchema       Boolean @default(false)
+  hreflangTags    Json?   // Array of hreflang values
+
+  contentScore    Int     @default(0)  // 0-100
+  contentHash     String? // SHA-256 of body text
+
+  responseTimeMs  Int     @default(0)
+  byteSize        Int     @default(0)
+  indexable       Boolean @default(true)
+
+  crawl           Crawl   @relation(fields: [crawlId], references: [id], onDelete: Cascade)
+
+  @@index([crawlId])
+  @@index([crawlId, url])
+}
+
+// ============ AUDIT LINK GRAPH ============
+
+model AuditLink {
+  id          String  @id @default(cuid())
+  crawlId     String
+  sourceUrl   String
+  targetUrl   String
+  anchorText  String?
+  isInternal  Boolean @default(true)
+  isNofollow  Boolean @default(false)
+  statusCode  Int?
+
+  crawl       Crawl   @relation(fields: [crawlId], references: [id], onDelete: Cascade)
+
+  @@index([crawlId])
+  @@index([crawlId, sourceUrl])
 }
 
 model CrawlIssue {

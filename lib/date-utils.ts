@@ -36,6 +36,14 @@ export function calculatePercentChange(
 }
 
 /**
+ * Returns the approximate latest date (YYYY-MM-DD) for which GSC data
+ * is available. Google typically has a ~3-day lag.
+ */
+export function getDataLagDate(): string {
+  return getDateDaysAgo(3);
+}
+
+/**
  * Format large numbers with K/M suffix
  */
 export function formatLargeNumber(num: number): string {

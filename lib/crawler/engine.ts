@@ -1,9 +1,15 @@
+import { createHash } from "crypto";
 import { db } from "@/lib/db";
 import type { IssueSeverity, IssueType } from "@prisma/client";
+import robotsParser from "robots-parser";
+import { REMEDIATION } from "./remediation";
 
-const MAX_PAGES = 40;
+const ABSOLUTE_MAX_PAGES = 2000;
+const BATCH_SIZE = 15;
+const BATCH_DELAY_MS = 100;
 const FETCH_TIMEOUT_MS = 12_000;
-const USER_AGENT = "CrawlSEOBot/1.0 (+https://crawlseo.dev; self-hosted SEO audit)";
+const USER_AGENT =
+  "CrawlSEOBot/1.0 (+https://crawlseo.dev; self-hosted SEO audit)";
 
 type IssueInput = {
   url: string;
@@ -13,29 +19,48 @@ type IssueInput = {
   details?: Record<string, unknown>;
 };
 
+type LinkInfo = {
+  sourceUrl: string;
+  targetUrl: string;
+  anchorText: string | null;
+  isInternal: boolean;
+  isNofollow: boolean;
+  statusCode: number | null;
+};
+
 type PageSnapshot = {
   url: string;
   statusCode: number;
+  redirectUrl: string | null;
   title: string | null;
   description: string | null;
   h1s: string[];
   canonical: string | null;
+  robotsMeta: string | null;
   wordCount: number;
   contentScore: number;
   internalOutlinks: string[];
+  externalOutlinks: string[];
+  links: LinkInfo[];
   hasSchema: boolean;
+  hreflangTags: { lang: string; href: string }[];
   imageCount: number;
   imagesMissingAlt: number;
   bytes: number;
   loadMs: number;
+  contentHash: string;
+  indexable: boolean;
 };
+
+/* ------------------------------------------------------------------ */
+/*  URL helpers                                                       */
+/* ------------------------------------------------------------------ */
 
 function normalizeUrl(raw: string, base: string): string | null {
   try {
     const u = new URL(raw, base);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
     u.hash = "";
-    // strip trailing slash except root
     if (u.pathname.length > 1 && u.pathname.endsWith("/")) {
       u.pathname = u.pathname.slice(0, -1);
     }
@@ -47,8 +72,10 @@ function normalizeUrl(raw: string, base: string): string | null {
 
 function sameHost(a: string, b: string): boolean {
   try {
-    return new URL(a).hostname.replace(/^www\./, "") ===
-      new URL(b).hostname.replace(/^www\./, "");
+    return (
+      new URL(a).hostname.replace(/^www\./, "") ===
+      new URL(b).hostname.replace(/^www\./, "")
+    );
   } catch {
     return false;
   }
@@ -58,6 +85,10 @@ function originOf(url: string): string {
   const u = new URL(url);
   return `${u.protocol}//${u.host}`;
 }
+
+/* ------------------------------------------------------------------ */
+/*  HTML parsing helpers                                              */
+/* ------------------------------------------------------------------ */
 
 function extractTag(html: string, re: RegExp): string | null {
   const m = html.match(re);
@@ -83,51 +114,150 @@ function stripTags(html: string): string {
     .trim();
 }
 
-function parseHtml(url: string, html: string, statusCode: number, loadMs: number, bytes: number): PageSnapshot {
+function hashText(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Parse a fetched HTML page into a snapshot                         */
+/* ------------------------------------------------------------------ */
+
+function parseHtml(
+  url: string,
+  html: string,
+  statusCode: number,
+  loadMs: number,
+  bytes: number,
+  redirectUrl: string | null,
+  seedUrl: string
+): PageSnapshot {
   const titleRaw = extractTag(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
-  const title = titleRaw ? decodeEntities(titleRaw.replace(/\s+/g, " ").trim()) : null;
+  const title = titleRaw
+    ? decodeEntities(titleRaw.replace(/\s+/g, " ").trim())
+    : null;
 
   const description =
-    extractTag(html, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i) ||
-    extractTag(html, /<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["']/i);
+    extractTag(
+      html,
+      /<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i
+    ) ||
+    extractTag(
+      html,
+      /<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["']/i
+    );
 
   const h1s = [...html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)].map((m) =>
     decodeEntities(stripTags(m[1])).slice(0, 200)
   );
 
   const canonical =
-    extractTag(html, /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i) ||
-    extractTag(html, /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i);
+    extractTag(
+      html,
+      /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i
+    ) ||
+    extractTag(
+      html,
+      /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i
+    );
+
+  // robots meta
+  const robotsMeta =
+    extractTag(
+      html,
+      /<meta[^>]+name=["']robots["'][^>]+content=["']([^"']*)["']/i
+    ) ||
+    extractTag(
+      html,
+      /<meta[^>]+content=["']([^"']*)["'][^>]+name=["']robots["']/i
+    );
 
   const hasSchema =
     /application\/ld\+json/i.test(html) ||
     /\bitemscope\b/i.test(html) ||
     /\bitemtype\b/i.test(html);
 
+  // hreflang tags
+  const hreflangTags = [
+    ...html.matchAll(
+      /<link[^>]+rel=["']alternate["'][^>]+hreflang=["']([^"']+)["'][^>]+href=["']([^"']+)["'][^>]*>/gi
+    ),
+    ...html.matchAll(
+      /<link[^>]+href=["']([^"']+)["'][^>]+hreflang=["']([^"']+)["'][^>]+rel=["']alternate["'][^>]*>/gi
+    ),
+  ].map((m) => {
+    // The capture groups might be in different order depending on which regex matched
+    // First regex: hreflang is group 1, href is group 2
+    // Second regex: href is group 1, hreflang is group 2
+    if (m[0].indexOf("hreflang") < m[0].indexOf("href=")) {
+      return { lang: m[1], href: m[2] };
+    }
+    return { lang: m[2], href: m[1] };
+  });
+
+  // Images
   const imgTags = [...html.matchAll(/<img\b[^>]*>/gi)].map((m) => m[0]);
   const imageCount = imgTags.length;
   const imagesMissingAlt = imgTags.filter(
     (tag) => !/\balt\s*=\s*["'][^"']+["']/i.test(tag)
   ).length;
 
+  // Body text and word count
   const bodyText = stripTags(html);
   const words = bodyText ? bodyText.split(/\s+/).filter(Boolean) : [];
   const wordCount = words.length;
 
+  // Content hash
+  const contentHash = hashText(bodyText);
+
+  // Links - extract anchor text, nofollow, internal/external
   const internalOutlinks: string[] = [];
-  const hrefs = [...html.matchAll(/<a\b[^>]*href=["']([^"'#]+)["'][^>]*>/gi)];
-  for (const m of hrefs) {
-    const abs = normalizeUrl(m[1], url);
-    if (abs && sameHost(abs, url)) {
+  const externalOutlinks: string[] = [];
+  const links: LinkInfo[] = [];
+
+  const anchorMatches = [
+    ...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi),
+  ];
+  for (const m of anchorMatches) {
+    const attrs = m[1];
+    const anchorContent = m[2];
+    const hrefMatch = attrs.match(/href=["']([^"'#][^"']*)["']/i);
+    if (!hrefMatch) continue;
+
+    const abs = normalizeUrl(hrefMatch[1], url);
+    if (!abs) continue;
+
+    const anchorText = decodeEntities(stripTags(anchorContent)).slice(0, 200) || null;
+    const isNofollow = /\brel=["'][^"']*nofollow[^"']*["']/i.test(attrs);
+    const isInternal = sameHost(abs, seedUrl);
+
+    links.push({
+      sourceUrl: url,
+      targetUrl: abs,
+      anchorText,
+      isInternal,
+      isNofollow,
+      statusCode: null, // filled in later for internal links
+    });
+
+    if (isInternal) {
       internalOutlinks.push(abs);
+    } else {
+      externalOutlinks.push(abs);
     }
   }
+
+  // Indexable: not blocked by robots meta
+  const indexable = !(
+    robotsMeta &&
+    (/noindex/i.test(robotsMeta))
+  );
 
   // Simple on-page content score 0-100
   let contentScore = 40;
   if (title && title.length >= 15 && title.length <= 65) contentScore += 15;
   else if (title) contentScore += 5;
-  if (description && description.length >= 50 && description.length <= 160) contentScore += 15;
+  if (description && description.length >= 50 && description.length <= 160)
+    contentScore += 15;
   else if (description) contentScore += 5;
   if (h1s.length === 1) contentScore += 15;
   else if (h1s.length > 1) contentScore += 5;
@@ -140,20 +270,31 @@ function parseHtml(url: string, html: string, statusCode: number, loadMs: number
   return {
     url,
     statusCode,
+    redirectUrl,
     title,
     description,
     h1s,
     canonical: canonical ? normalizeUrl(canonical, url) : null,
+    robotsMeta,
     wordCount,
     contentScore,
     internalOutlinks: [...new Set(internalOutlinks)],
+    externalOutlinks: [...new Set(externalOutlinks)],
+    links,
     hasSchema,
+    hreflangTags,
     imageCount,
     imagesMissingAlt,
     bytes,
     loadMs,
+    contentHash,
+    indexable,
   };
 }
+
+/* ------------------------------------------------------------------ */
+/*  Fetch helpers                                                     */
+/* ------------------------------------------------------------------ */
 
 async function fetchPage(url: string): Promise<{
   statusCode: number;
@@ -178,9 +319,10 @@ async function fetchPage(url: string): Promise<{
     const buf = await res.arrayBuffer();
     const bytes = buf.byteLength;
     const contentType = res.headers.get("content-type") || "";
-    const html = contentType.includes("html") || contentType.includes("xml")
-      ? new TextDecoder("utf-8", { fatal: false }).decode(buf)
-      : "";
+    const html =
+      contentType.includes("html") || contentType.includes("xml")
+        ? new TextDecoder("utf-8", { fatal: false }).decode(buf)
+        : "";
     return {
       statusCode: res.status,
       html,
@@ -225,9 +367,18 @@ function parseSitemapUrls(xml: string, base: string): string[] {
   return out;
 }
 
-function issuesFromPage(page: PageSnapshot, seedOrigin: string): IssueInput[] {
+/* ------------------------------------------------------------------ */
+/*  Issue detection per page                                          */
+/* ------------------------------------------------------------------ */
+
+function issuesFromPage(page: PageSnapshot, _seedOrigin: string): IssueInput[] {
   const issues: IssueInput[] = [];
   const { url } = page;
+
+  const rem = (type: string) => {
+    const r = REMEDIATION[type];
+    return r ? { howToFix: r.howToFix } : {};
+  };
 
   if (page.statusCode >= 400) {
     issues.push({
@@ -235,7 +386,7 @@ function issuesFromPage(page: PageSnapshot, seedOrigin: string): IssueInput[] {
       type: "BROKEN_LINK",
       severity: "CRITICAL",
       message: `HTTP ${page.statusCode}`,
-      details: { statusCode: page.statusCode },
+      details: { statusCode: page.statusCode, ...rem("BROKEN_LINK") },
     });
     return issues;
   }
@@ -246,6 +397,7 @@ function issuesFromPage(page: PageSnapshot, seedOrigin: string): IssueInput[] {
       type: "MISSING_TITLE",
       severity: "CRITICAL",
       message: "Missing <title> tag",
+      details: rem("MISSING_TITLE"),
     });
   }
 
@@ -255,6 +407,7 @@ function issuesFromPage(page: PageSnapshot, seedOrigin: string): IssueInput[] {
       type: "MISSING_DESCRIPTION",
       severity: "WARNING",
       message: "Missing meta description",
+      details: rem("MISSING_DESCRIPTION"),
     });
   }
 
@@ -264,6 +417,7 @@ function issuesFromPage(page: PageSnapshot, seedOrigin: string): IssueInput[] {
       type: "MISSING_H1",
       severity: "WARNING",
       message: "No H1 heading found",
+      details: rem("MISSING_H1"),
     });
   } else if (page.h1s.length > 1) {
     issues.push({
@@ -271,7 +425,7 @@ function issuesFromPage(page: PageSnapshot, seedOrigin: string): IssueInput[] {
       type: "MULTIPLE_H1",
       severity: "INFO",
       message: `${page.h1s.length} H1 headings found`,
-      details: { h1s: page.h1s },
+      details: { h1s: page.h1s, ...rem("MULTIPLE_H1") },
     });
   }
 
@@ -284,6 +438,7 @@ function issuesFromPage(page: PageSnapshot, seedOrigin: string): IssueInput[] {
       details: {
         missing: page.imagesMissingAlt,
         total: page.imageCount,
+        ...rem("MISSING_ALT"),
       },
     });
   }
@@ -294,6 +449,7 @@ function issuesFromPage(page: PageSnapshot, seedOrigin: string): IssueInput[] {
       type: "MISSING_CANONICAL",
       severity: "INFO",
       message: "No canonical tag",
+      details: rem("MISSING_CANONICAL"),
     });
   }
 
@@ -303,6 +459,7 @@ function issuesFromPage(page: PageSnapshot, seedOrigin: string): IssueInput[] {
       type: "MISSING_SCHEMA",
       severity: "INFO",
       message: "No structured data (JSON-LD / microdata)",
+      details: rem("MISSING_SCHEMA"),
     });
   }
 
@@ -312,7 +469,7 @@ function issuesFromPage(page: PageSnapshot, seedOrigin: string): IssueInput[] {
       type: "SLOW_PAGE",
       severity: "WARNING",
       message: `Slow response: ${page.loadMs}ms`,
-      details: { loadMs: page.loadMs },
+      details: { loadMs: page.loadMs, ...rem("SLOW_PAGE") },
     });
   }
 
@@ -322,16 +479,10 @@ function issuesFromPage(page: PageSnapshot, seedOrigin: string): IssueInput[] {
       type: "LARGE_PAGE",
       severity: "WARNING",
       message: `Large HTML payload: ${(page.bytes / 1024 / 1024).toFixed(1)}MB`,
-      details: { bytes: page.bytes },
+      details: { bytes: page.bytes, ...rem("LARGE_PAGE") },
     });
   }
 
-  // Mixed content: http assets on https page
-  if (url.startsWith("https://") && /src=["']http:\/\//i.test(page.title || "")) {
-    // checked on raw later - skip if no html store
-  }
-
-  void seedOrigin;
   return issues;
 }
 
@@ -343,9 +494,12 @@ function computeHealthScore(issues: IssueInput[], pagesFound: number): number {
     else if (issue.severity === "WARNING") score -= 3;
     else score -= 1;
   }
-  // Cap deduction per page density
   return Math.max(0, Math.min(100, Math.round(score)));
 }
+
+/* ------------------------------------------------------------------ */
+/*  Main crawl result type                                            */
+/* ------------------------------------------------------------------ */
 
 export type CrawlResult = {
   crawlId: string;
@@ -358,42 +512,88 @@ export type CrawlResult = {
   avgContentScore: number;
 };
 
+/* ------------------------------------------------------------------ */
+/*  Main crawl function                                               */
+/* ------------------------------------------------------------------ */
+
 /**
- * Crawl a site starting from domain root (+ sitemap). Limited for serverless.
+ * Crawl a site starting from domain root (+ sitemap).
+ * Supports up to 2000 pages with concurrent batch fetching.
  */
 export async function runSiteCrawl(
   siteId: string,
-  domain: string
+  domain: string,
+  maxPages: number = 200,
+  existingCrawlId?: string
 ): Promise<CrawlResult> {
+  const effectiveMax = Math.max(1, Math.min(maxPages, ABSOLUTE_MAX_PAGES));
   const seed = domain.startsWith("http") ? domain : `https://${domain}`;
   const seedUrl = normalizeUrl(seed, seed) || seed;
   const origin = originOf(seedUrl);
 
-  const crawl = await db.crawl.create({
-    data: {
-      siteId,
-      status: "RUNNING",
-      startedAt: new Date(),
-    },
-  });
+  const crawl = existingCrawlId
+    ? await db.crawl.update({
+        where: { id: existingCrawlId },
+        data: { status: "RUNNING", startedAt: new Date() },
+      })
+    : await db.crawl.create({
+        data: {
+          siteId,
+          status: "RUNNING",
+          startedAt: new Date(),
+        },
+      });
 
+  try {
+    return await executeCrawl(crawl.id, siteId, seedUrl, origin, effectiveMax);
+  } catch (err) {
+    // Mark crawl as failed on any unhandled error
+    await db.crawl
+      .update({
+        where: { id: crawl.id },
+        data: {
+          status: "FAILED",
+          finishedAt: new Date(),
+        },
+      })
+      .catch(() => {}); // swallow DB errors during cleanup
+    throw err;
+  }
+}
+
+async function executeCrawl(
+  crawlId: string,
+  _siteId: string,
+  seedUrl: string,
+  origin: string,
+  maxPages: number
+): Promise<CrawlResult> {
   const issues: IssueInput[] = [];
   const pages: PageSnapshot[] = [];
+  const allLinks: LinkInfo[] = [];
   const visited = new Set<string>();
   const queue: string[] = [seedUrl];
 
-  // robots + sitemap
+  /* ---- robots.txt ---- */
   const robotsUrl = `${origin}/robots.txt`;
   const robotsText = await fetchText(robotsUrl);
+
+  let robotsChecker: ReturnType<typeof robotsParser> | null = null;
   if (!robotsText) {
     issues.push({
       url: robotsUrl,
       type: "MISSING_ROBOTS",
       severity: "WARNING",
       message: "robots.txt not found or unreachable",
+      details: REMEDIATION.MISSING_ROBOTS
+        ? { howToFix: REMEDIATION.MISSING_ROBOTS.howToFix }
+        : {},
     });
+  } else {
+    robotsChecker = robotsParser(robotsUrl, robotsText);
   }
 
+  /* ---- Sitemap discovery ---- */
   let sitemapUrls: string[] = [];
   const sitemapCandidates = [
     `${origin}/sitemap.xml`,
@@ -426,72 +626,118 @@ export async function runSiteCrawl(
       type: "MISSING_SITEMAP",
       severity: "WARNING",
       message: "No sitemap.xml found",
+      details: REMEDIATION.MISSING_SITEMAP
+        ? { howToFix: REMEDIATION.MISSING_SITEMAP.howToFix }
+        : {},
     });
   } else {
-    for (const u of sitemapUrls.slice(0, 25)) {
+    // Seed queue from sitemap
+    for (const u of sitemapUrls.slice(0, 100)) {
       if (!queue.includes(u)) queue.push(u);
     }
   }
 
-  while (queue.length > 0 && pages.length < MAX_PAGES) {
-    const next = queue.shift()!;
-    const normalized = normalizeUrl(next, origin);
-    if (!normalized || visited.has(normalized)) continue;
-    if (!sameHost(normalized, seedUrl)) continue;
-    visited.add(normalized);
+  /* ---- Crawl loop with batch concurrency ---- */
+  while (queue.length > 0 && pages.length < maxPages) {
+    // Collect the next batch of unvisited URLs
+    const batch: string[] = [];
+    while (batch.length < BATCH_SIZE && queue.length > 0 && pages.length + batch.length < maxPages) {
+      const next = queue.shift()!;
+      const normalized = normalizeUrl(next, origin);
+      if (!normalized || visited.has(normalized)) continue;
+      if (!sameHost(normalized, seedUrl)) continue;
 
-    try {
-      const res = await fetchPage(normalized);
+      // Check robots.txt
+      if (robotsChecker && !robotsChecker.isAllowed(normalized, USER_AGENT)) {
+        visited.add(normalized);
+        continue;
+      }
+
+      visited.add(normalized);
+      batch.push(normalized);
+    }
+
+    if (batch.length === 0) break;
+
+    // Fetch all pages in the batch concurrently
+    const results = await Promise.allSettled(
+      batch.map(async (url) => {
+        try {
+          const res = await fetchPage(url);
+          return { url, res, error: null };
+        } catch (err) {
+          return { url, res: null, error: err };
+        }
+      })
+    );
+
+    for (const result of results) {
+      if (result.status === "rejected") continue;
+      const { url, res, error } = result.value;
+
+      if (error || !res) {
+        issues.push({
+          url,
+          type: "BROKEN_LINK",
+          severity: "CRITICAL",
+          message:
+            error instanceof Error ? error.message : "Fetch failed",
+          details: { howToFix: REMEDIATION.BROKEN_LINK?.howToFix },
+        });
+        continue;
+      }
+
       if (!res.contentType.includes("html") && res.statusCode < 400) {
         continue;
       }
 
-      // Redirect chain heuristic: final URL differs significantly
-      if (res.finalUrl && normalizeUrl(res.finalUrl, origin) !== normalized) {
-        const hops = Math.abs(res.finalUrl.length - normalized.length);
-        if (hops > 0 && res.statusCode >= 200 && res.statusCode < 400) {
-          // only flag if we followed redirects (fetch already followed)
-          // detect via status if we had intermediate - skip heavy
-        }
-      }
+      const finalNormalized = normalizeUrl(res.finalUrl, origin) || url;
+      const redirectUrl =
+        finalNormalized !== url ? finalNormalized : null;
 
       const page = parseHtml(
-        normalizeUrl(res.finalUrl, origin) || normalized,
+        finalNormalized,
         res.html,
         res.statusCode,
         res.loadMs,
-        res.bytes
+        res.bytes,
+        redirectUrl,
+        seedUrl
       );
 
-      // mixed content check on raw html
-      if (page.url.startsWith("https://") && /(?:src|href)=["']http:\/\//i.test(res.html)) {
+      // Mixed content check on raw HTML
+      if (
+        page.url.startsWith("https://") &&
+        /(?:src|href)=["']http:\/\//i.test(res.html)
+      ) {
         issues.push({
           url: page.url,
           type: "MIXED_CONTENT",
           severity: "WARNING",
           message: "Page loads insecure HTTP resources",
+          details: { howToFix: REMEDIATION.MIXED_CONTENT?.howToFix },
         });
       }
 
       pages.push(page);
+      allLinks.push(...page.links);
       issues.push(...issuesFromPage(page, origin));
 
+      // Enqueue discovered internal links
       for (const link of page.internalOutlinks) {
-        if (!visited.has(link) && queue.length + pages.length < MAX_PAGES * 2) {
+        if (!visited.has(link)) {
           queue.push(link);
         }
       }
-    } catch (err) {
-      issues.push({
-        url: normalized,
-        type: "BROKEN_LINK",
-        severity: "CRITICAL",
-        message: err instanceof Error ? err.message : "Fetch failed",
-      });
+    }
+
+    // Small delay between batches to avoid hammering the target
+    if (queue.length > 0 && pages.length < maxPages) {
+      await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
     }
   }
 
-  // Duplicate titles / descriptions
+  /* ---- Duplicate titles / descriptions ---- */
   const byTitle = new Map<string, string[]>();
   const byDesc = new Map<string, string[]>();
   for (const p of pages) {
@@ -514,7 +760,11 @@ export async function runSiteCrawl(
           type: "DUPLICATE_TITLE",
           severity: "WARNING",
           message: `Duplicate title shared by ${urls.length} pages`,
-          details: { title, urls },
+          details: {
+            title,
+            urls,
+            howToFix: REMEDIATION.DUPLICATE_TITLE?.howToFix,
+          },
         });
       }
     }
@@ -527,17 +777,23 @@ export async function runSiteCrawl(
           type: "DUPLICATE_DESCRIPTION",
           severity: "INFO",
           message: `Duplicate meta description on ${urls.length} pages`,
-          details: { description, urls },
+          details: {
+            description,
+            urls,
+            howToFix: REMEDIATION.DUPLICATE_DESCRIPTION?.howToFix,
+          },
         });
       }
     }
   }
 
-  // Sitemap vs crawl
+  /* ---- Sitemap coverage & orphan detection ---- */
   const crawledSet = new Set(pages.map((p) => p.url));
   const sitemapSet = new Set(sitemapUrls);
-  const missingFromSitemap = [...crawledSet].filter((u) => sitemapSet.size && !sitemapSet.has(u));
-  // Orphans: in sitemap but no internal inlinks from crawled pages (except homepage)
+  const missingFromSitemap = [...crawledSet].filter(
+    (u) => sitemapSet.size > 0 && !sitemapSet.has(u)
+  );
+
   const inlinkCount = new Map<string, number>();
   for (const p of pages) {
     for (const out of p.internalOutlinks) {
@@ -549,82 +805,117 @@ export async function runSiteCrawl(
     return !isHome && (inlinkCount.get(p.url) || 0) === 0;
   });
 
-  for (const url of missingFromSitemap.slice(0, 20)) {
+  for (const url of missingFromSitemap.slice(0, 50)) {
     issues.push({
       url,
       type: "MISSING_SITEMAP",
       severity: "INFO",
       message: "Crawled page not listed in sitemap",
-      details: { kind: "not_in_sitemap" },
+      details: {
+        kind: "not_in_sitemap",
+        howToFix: REMEDIATION.MISSING_SITEMAP?.howToFix,
+      },
     });
   }
 
-  // Store orphan as crawl issues with details (reuse REDIRECT? better custom in details)
-  // Use MISSING_CANONICAL? No - store as INFO via message with type MISSING_SITEMAP alternative
-  // Schema has no ORPHAN - use details on a generic or MISSING_SCHEMA misuse - add as INFO BROKEN? 
-  // We'll use message with type MISSING_CANONICAL no...
-  // Actually use CrawlIssue type REDIRECT is wrong. Closest: store as INFO with type MISSING_SITEMAP and details.kind orphan
-  for (const p of orphans.slice(0, 20)) {
+  for (const p of orphans.slice(0, 50)) {
     issues.push({
       url: p.url,
-      type: "MISSING_CANONICAL", // placeholder - we'll map to "orphan" in UI via details
+      type: "MISSING_CANONICAL",
       severity: "WARNING",
       message: "Potential orphan page (no internal inlinks found)",
       details: { kind: "orphan", contentScore: p.contentScore },
     });
   }
 
+  /* ---- Compute scores ---- */
   const healthScore = computeHealthScore(issues, pages.length);
   const avgContentScore =
     pages.length > 0
-      ? Math.round(pages.reduce((s, p) => s + p.contentScore, 0) / pages.length)
+      ? Math.round(
+          pages.reduce((s, p) => s + p.contentScore, 0) / pages.length
+        )
       : 0;
 
-  // Persist issues (cap to keep DB small)
-  const toSave = issues.slice(0, 500);
+  /* ---- Persist AuditPage records ---- */
+  if (pages.length > 0) {
+    // Batch in chunks to avoid overly large createMany calls
+    const PAGE_BATCH = 100;
+    for (let i = 0; i < pages.length; i += PAGE_BATCH) {
+      const chunk = pages.slice(i, i + PAGE_BATCH);
+      await db.auditPage.createMany({
+        data: chunk.map((p) => ({
+          crawlId,
+          url: p.url,
+          statusCode: p.statusCode,
+          redirectUrl: p.redirectUrl,
+          title: p.title,
+          description: p.description,
+          canonical: p.canonical,
+          robotsMeta: p.robotsMeta,
+          h1Count: p.h1s.length,
+          h1s: p.h1s,
+          wordCount: p.wordCount,
+          imageCount: p.imageCount,
+          imagesMissingAlt: p.imagesMissingAlt,
+          internalLinks: p.internalOutlinks.length,
+          externalLinks: p.externalOutlinks.length,
+          hasSchema: p.hasSchema,
+          hreflangTags: p.hreflangTags.length > 0 ? p.hreflangTags : undefined,
+          contentScore: p.contentScore,
+          contentHash: p.contentHash,
+          responseTimeMs: p.loadMs,
+          byteSize: p.bytes,
+          indexable: p.indexable,
+        })),
+      });
+    }
+  }
+
+  /* ---- Persist AuditLink records ---- */
+  if (allLinks.length > 0) {
+    const LINK_BATCH = 200;
+    // Cap total links to avoid blowing up storage
+    const linksToStore = allLinks.slice(0, 10000);
+    for (let i = 0; i < linksToStore.length; i += LINK_BATCH) {
+      const chunk = linksToStore.slice(i, i + LINK_BATCH);
+      await db.auditLink.createMany({
+        data: chunk.map((l) => ({
+          crawlId,
+          sourceUrl: l.sourceUrl,
+          targetUrl: l.targetUrl,
+          anchorText: l.anchorText,
+          isInternal: l.isInternal,
+          isNofollow: l.isNofollow,
+          statusCode: l.statusCode,
+        })),
+      });
+    }
+  }
+
+  /* ---- Persist CrawlIssue records ---- */
+  const toSave = issues.slice(0, 1000);
   if (toSave.length) {
     await db.crawlIssue.createMany({
       data: toSave.map((i) => ({
-        crawlId: crawl.id,
+        crawlId,
         url: i.url,
         type: i.type,
         severity: i.severity,
         message: i.message,
-        details: {
-          ...i.details,
-          contentScores: undefined,
-        },
+        details: (i.details ?? undefined) as undefined | Record<string, string | number | boolean | null>,
       })),
     });
   }
 
-  // Store page summaries in crawl via a synthetic approach - put summary on last issue details? 
-  // Better: update crawl with pagesFound and store summary JSON by piggybacking - schema has no summary field.
-  // Use first issue details no... Add summary as COMPLETED and store in a dedicated CrawlIssue? Messy.
-  // We'll store summary by creating crawl and returning; for UI fetch issues + recompute from issues.
-  // Also store page content scores as INFO issues? Too noisy.
-  // Add optional details on crawl via raw query? Schema doesn't allow.
-  // Quick migration would be best - but user said migrate. Let me add summary Json to Crawl via migration.
-
-  await db.crawl.update({
-    where: { id: crawl.id },
-    data: {
-      status: "COMPLETED",
-      finishedAt: new Date(),
-      pagesFound: pages.length,
-      issuesFound: toSave.length,
-      healthScore,
-    },
-  });
-
-  // Store page snapshots as JSON file alternative: insert into CrawlIssue with type INFO for content score summary per page - only low scores
+  // Thin content pages as INFO issues
   const thin = pages.filter((p) => p.contentScore < 60);
   if (thin.length) {
     await db.crawlIssue.createMany({
-      data: thin.slice(0, 30).map((p) => ({
-        crawlId: crawl.id,
+      data: thin.slice(0, 50).map((p) => ({
+        crawlId,
         url: p.url,
-        type: "MISSING_DESCRIPTION" as IssueType, // will filter by details.kind
+        type: "MISSING_DESCRIPTION" as IssueType,
         severity: "INFO" as IssueSeverity,
         message: `On-page content score ${p.contentScore}/100 (${p.wordCount} words)`,
         details: {
@@ -638,10 +929,10 @@ export async function runSiteCrawl(
     });
   }
 
-  // Internal link summary
+  // Crawl summary issue
   await db.crawlIssue.create({
     data: {
-      crawlId: crawl.id,
+      crawlId,
       url: seedUrl,
       type: "MISSING_SCHEMA",
       severity: "INFO",
@@ -655,6 +946,7 @@ export async function runSiteCrawl(
           contentScore: p.contentScore,
           wordCount: p.wordCount,
           outlinks: p.internalOutlinks.length,
+          externalOutlinks: p.externalOutlinks.length,
           inlinks: inlinkCount.get(p.url) || 0,
         })),
         sitemapUrls: sitemapUrls.length,
@@ -665,14 +957,24 @@ export async function runSiteCrawl(
     },
   });
 
-  const finalIssues = await db.crawlIssue.count({ where: { crawlId: crawl.id } });
+  /* ---- Finalize crawl record ---- */
+  const finalIssues = await db.crawlIssue.count({
+    where: { crawlId },
+  });
+
   await db.crawl.update({
-    where: { id: crawl.id },
-    data: { issuesFound: finalIssues },
+    where: { id: crawlId },
+    data: {
+      status: "COMPLETED",
+      finishedAt: new Date(),
+      pagesFound: pages.length,
+      issuesFound: finalIssues,
+      healthScore,
+    },
   });
 
   return {
-    crawlId: crawl.id,
+    crawlId,
     pagesFound: pages.length,
     issuesFound: finalIssues,
     healthScore,

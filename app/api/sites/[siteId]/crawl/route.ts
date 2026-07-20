@@ -2,10 +2,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runSiteCrawl } from "@/lib/crawler/engine";
 
-export const maxDuration = 60;
-
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ siteId: string }> }
 ) {
   try {
@@ -35,8 +33,35 @@ export async function POST(
       );
     }
 
-    const result = await runSiteCrawl(siteId, site.domain);
-    return Response.json(result);
+    // Accept optional maxPages from request body
+    let maxPages: number | undefined;
+    try {
+      const body = (await req.json()) as { maxPages?: number };
+      if (body.maxPages && typeof body.maxPages === "number" && body.maxPages > 0) {
+        maxPages = body.maxPages;
+      }
+    } catch {
+      // No body or invalid JSON — use defaults
+    }
+
+    // Create the crawl record upfront so we can return its ID immediately
+    const crawl = await db.crawl.create({
+      data: {
+        siteId,
+        status: "PENDING",
+        ...(maxPages && { maxPages }),
+      },
+    });
+
+    // Fire-and-forget: run crawl in background using the pre-created record
+    runSiteCrawl(siteId, site.domain, maxPages, crawl.id).catch((error) => {
+      console.error(`Background crawl failed for site ${siteId}:`, error);
+    });
+
+    return Response.json(
+      { crawlId: crawl.id, status: "RUNNING" },
+      { status: 202 }
+    );
   } catch (error) {
     console.error("Crawl error:", error);
     return Response.json(

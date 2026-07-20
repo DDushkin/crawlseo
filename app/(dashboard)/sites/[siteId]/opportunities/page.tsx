@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { getAllOpportunities } from "@/lib/seo-opportunities";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ExportLinks } from "@/components/sites/action-buttons";
+import { CsvExportButton } from "@/components/ui/csv-export-button";
+import { DataLagBadge } from "@/components/ui/data-lag-badge";
 import { PositionBadge, NumCell, CtrCell } from "@/components/ui/data-table";
 import { cn } from "@/lib/utils";
 
@@ -48,7 +49,13 @@ export default async function OpportunitiesPage({ params }: Props) {
         eyebrow={site.domain}
         title="Opportunities"
         description="Striking distance, low CTR, content decay, and keyword cannibalization"
-        actions={<ExportLinks siteId={siteId} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <DataLagBadge />
+            <CsvExportButton siteId={siteId} type="keywords" />
+            <CsvExportButton siteId={siteId} type="pages" />
+          </div>
+        }
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">

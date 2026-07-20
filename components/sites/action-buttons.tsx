@@ -19,9 +19,7 @@ export function CrawlButton({ siteId }: { siteId: string }) {
       const res = await fetch(`/api/sites/${siteId}/crawl`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Crawl failed");
-      setMsg(
-        `Health ${data.healthScore}/100 · ${data.pagesFound} pages · ${data.issuesFound} issues`
-      );
+      setMsg(`Crawl started (ID: ${data.crawlId?.slice(0, 8)}...)`);
       router.refresh();
     } catch (e) {
       setErr(true);
@@ -39,7 +37,7 @@ export function CrawlButton({ siteId }: { siteId: string }) {
         disabled={loading}
         onClick={run}
       >
-        {loading ? "Crawling…" : "Run crawl"}
+        {loading ? "Starting…" : "Run crawl"}
       </Button>
       {msg && (
         <p className={cn("text-atom-caption", err ? "text-danger" : "text-signal")}>

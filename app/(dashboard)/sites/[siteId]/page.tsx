@@ -8,11 +8,12 @@ import { TopKeywords } from "@/components/dashboard/top-keywords";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SyncButton } from "@/components/sites/sync-button";
+import { DataLagBadge } from "@/components/ui/data-lag-badge";
 import {
   CrawlButton,
   VitalsButton,
-  ExportLinks,
 } from "@/components/sites/action-buttons";
+import { CsvExportButton } from "@/components/ui/csv-export-button";
 import { getAllOpportunities } from "@/lib/seo-opportunities";
 
 interface SitePageProps {
@@ -62,6 +63,7 @@ export default async function SiteOverviewPage({ params }: SitePageProps) {
         description={site.gscProperty || "Search Console property"}
         actions={
           <div className="flex flex-wrap items-start gap-2">
+            <DataLagBadge />
             <SyncButton siteId={siteId} />
             <CrawlButton siteId={siteId} />
             <VitalsButton siteId={siteId} />
@@ -73,10 +75,12 @@ export default async function SiteOverviewPage({ params }: SitePageProps) {
         {[
           ["Opportunities", "opportunities"],
           ["Keywords", "keywords"],
+          ["Saved Keywords", "saved-keywords"],
           ["Pages", "pages"],
           ["Crawl", "crawl"],
           ["Vitals", "vitals"],
           ["Alerts", "alerts"],
+          ["Settings", "settings"],
         ].map(([label, path]) => (
           <Link
             key={path}
@@ -135,7 +139,11 @@ export default async function SiteOverviewPage({ params }: SitePageProps) {
           <DashboardMetrics siteId={siteId} />
           <TrafficChart siteId={siteId} />
           <TopKeywords siteId={siteId} />
-          <ExportLinks siteId={siteId} />
+
+          <div className="flex flex-wrap gap-2">
+            <CsvExportButton siteId={siteId} type="keywords" />
+            <CsvExportButton siteId={siteId} type="pages" />
+          </div>
         </div>
       )}
     </div>

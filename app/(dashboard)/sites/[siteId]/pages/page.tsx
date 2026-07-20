@@ -5,6 +5,8 @@ import { getTopPages } from "@/lib/seo-metrics";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SyncButton } from "@/components/sites/sync-button";
+import { CsvExportButton } from "@/components/ui/csv-export-button";
+import { DataLagBadge } from "@/components/ui/data-lag-badge";
 import {
   PositionBadge,
   MetricTable,
@@ -37,7 +39,13 @@ export default async function PagesPage({ params }: PagesPageProps) {
         eyebrow={site.domain}
         title="Pages"
         description="Landing pages from Search Console, aggregated over the last 28 days."
-        actions={<SyncButton siteId={siteId} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <DataLagBadge />
+            <CsvExportButton siteId={siteId} type="pages" />
+            <SyncButton siteId={siteId} />
+          </div>
+        }
       />
 
       {pages.length === 0 ? (

@@ -5,6 +5,8 @@ import { getSitePeriodMetrics, formatCompact } from "@/lib/seo-metrics";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AddSiteModal } from "@/components/sites/add-site-modal";
+import { OnboardingChecklist } from "@/components/dashboard/onboarding-checklist";
+import { DataLagBadge } from "@/components/ui/data-lag-badge";
 import { formatDeltaPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -17,10 +19,17 @@ export default async function DashboardPage() {
       id: true,
       domain: true,
       gscProperty: true,
-      _count: { select: { keywords: true } },
+      _count: { select: { keywords: true, crawls: true } },
     },
     orderBy: { domain: "asc" },
   });
+
+  // Onboarding state
+  const hasSites = sites.length > 0;
+  const hasGscConnected = sites.some((s) => s.gscProperty);
+  const hasSyncedData = sites.some((s) => s._count.keywords > 0);
+  const hasCrawled = sites.some((s) => s._count.crawls > 0);
+  const firstSiteId = sites[0]?.id;
 
   if (sites.length === 0) {
     return (
@@ -30,6 +39,12 @@ export default async function DashboardPage() {
           title="Welcome to CrawlSEO"
           description="Connect Google Search Console properties to track rankings, traffic, and opportunity."
           actions={<AddSiteModal triggerLabel="Connect first site" />}
+        />
+        <OnboardingChecklist
+          hasSites={false}
+          hasGscConnected={false}
+          hasSyncedData={false}
+          hasCrawled={false}
         />
         <EmptyState
           icon="↗"
@@ -65,7 +80,21 @@ export default async function DashboardPage() {
         eyebrow="Workspace"
         title="Portfolio overview"
         description={`${sites.length} site${sites.length === 1 ? "" : "s"} · last 28 days vs prior period`}
-        actions={<AddSiteModal />}
+        actions={
+          <div className="flex items-center gap-3">
+            <DataLagBadge />
+            <AddSiteModal />
+          </div>
+        }
+      />
+
+      {/* Onboarding checklist */}
+      <OnboardingChecklist
+        hasSites={hasSites}
+        hasGscConnected={hasGscConnected}
+        hasSyncedData={hasSyncedData}
+        hasCrawled={hasCrawled}
+        firstSiteId={firstSiteId}
       />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
