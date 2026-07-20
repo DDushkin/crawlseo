@@ -1,6 +1,7 @@
 <div align="center">
 
-<img src="docs/screenshots/logo.png" alt="CrawlSEO" width="80" />
+<!-- Logo placeholder — replace with actual logo when available -->
+<!-- <img src="docs/screenshots/logo.png" alt="CrawlSEO" width="80" /> -->
 
 # CrawlSEO
 
@@ -17,7 +18,6 @@ Google Search Console + Site Crawler + Core Web Vitals + MCP Server — all in o
 
 ---
 
-<!-- TODO: Replace with actual screenshot -->
 <p align="center">
   <img src="docs/screenshots/dashboard.png" alt="CrawlSEO Dashboard" width="800" />
 </p>
@@ -56,17 +56,12 @@ Google Search Console + Site Crawler + Core Web Vitals + MCP Server — all in o
 | 📥 | **CSV Export** | Export keywords and pages data for offline analysis |
 | 🌗 | **Dark / Light theme** | Atomize PRO design system with smooth theme toggle |
 
-<!-- TODO: Replace with actual screenshots -->
 <details>
-<summary>📸 Screenshots</summary>
+<summary>📸 More screenshots</summary>
 
-| Dashboard | Keywords | Crawl / Audit |
+| Keywords | Crawl / Audit | AI & MCP |
 |---|---|---|
-| <img src="docs/screenshots/dashboard.png" width="280" /> | <img src="docs/screenshots/keywords.png" width="280" /> | <img src="docs/screenshots/crawl.png" width="280" /> |
-
-| Core Web Vitals | Keyword Research | AI & MCP |
-|---|---|---|
-| <img src="docs/screenshots/vitals.png" width="280" /> | <img src="docs/screenshots/keyword-research.png" width="280" /> | <img src="docs/screenshots/mcp.png" width="280" /> |
+| <img src="docs/screenshots/keywords.png" width="280" /> | <img src="docs/screenshots/audit.png" width="280" /> | <img src="docs/screenshots/mcp.png" width="280" /> |
 
 </details>
 
@@ -157,14 +152,6 @@ docker compose up --build
 ```
 
 The full stack (PostgreSQL + Next.js) starts in ~2 minutes. Migrations run automatically.
-
-### Railway
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template)
-
-1. Click the button above
-2. Add environment variables (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`)
-3. Railway provisions PostgreSQL automatically
 
 ### Manual
 
