@@ -24,7 +24,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "mcp": "npx tsx mcp/server.ts"
+    "mcp": "npx tsx mcp/server.ts",
+    "seed:demo": "npx tsx scripts/seed-demo.ts",
+    "seed:demo:clean": "npx tsx scripts/seed-demo.ts --clean"
   },
   "dependencies": {
     "@auth/core": "^0.41.0",
