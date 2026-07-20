@@ -42,12 +42,41 @@ Google Search Console + Site Crawler + Core Web Vitals + MCP Server — all in o
 
 ## Features
 
+### 🔍 GSC Analytics
+
+Keywords, pages, clicks, impressions, position tracking with 28-day comparison and delta indicators.
+
+<p align="center">
+  <img src="docs/screenshots/keywords.png" alt="Keywords — GSC Analytics" width="800" />
+  <br />
+  <em>Top keywords with position badges, clicks, impressions, and CTR</em>
+</p>
+
+### 🕷️ Site Crawler
+
+Crawl up to 2,000 pages with concurrent fetching. Health score, 16 issue types, content scoring, and remediation guidance.
+
+<p align="center">
+  <img src="docs/screenshots/audit.png" alt="Crawl / Audit" width="800" />
+  <br />
+  <em>Crawl results with health score, issue breakdown, and per-page audit data</em>
+</p>
+
+### 🤖 MCP Server — AI Agent Integration
+
+10 tools for Claude Code, Claude Desktop, and Cursor. Query your SEO data, run crawls, and find opportunities without leaving the terminal.
+
+<p align="center">
+  <img src="docs/screenshots/mcp.png" alt="AI & MCP" width="800" />
+  <br />
+  <em>MCP setup page with connection config, setup guides, and available tools</em>
+</p>
+
+### More features
+
 | | Feature | Description |
 |---|---|---|
-| 🔍 | **GSC Analytics** | Keywords, pages, clicks, impressions, position tracking with 28-day comparison |
-| 🕷️ | **Site Crawler** | Crawl up to 2,000 pages with concurrent fetching, health score, and 16 issue types |
 | ⚡ | **Core Web Vitals** | LCP, CLS, INP, TTFB via PageSpeed Insights with mobile/desktop comparison |
-| 🤖 | **MCP Server** | 10 tools for Claude Code, Claude Desktop, and Cursor — query SEO data from your AI agent |
 | 🔑 | **Keyword Research** | DataForSEO-powered keyword ideas with volume, difficulty, CPC. Free Google Autocomplete fallback |
 | 🔗 | **Backlinks** | Backlink profile, referring domains, anchor text, dofollow/nofollow analysis |
 | 📊 | **Rank Tracking** | Historical position snapshots with saved keywords and notes |
@@ -55,15 +84,6 @@ Google Search Console + Site Crawler + Core Web Vitals + MCP Server — all in o
 | 🔔 | **Alerts** | Traffic drops, position changes, new 404s, vitals degradation — via email, Slack, Telegram, webhook |
 | 📥 | **CSV Export** | Export keywords and pages data for offline analysis |
 | 🌗 | **Dark / Light theme** | Atomize PRO design system with smooth theme toggle |
-
-<details>
-<summary>📸 More screenshots</summary>
-
-| Keywords | Crawl / Audit | AI & MCP |
-|---|---|---|
-| <img src="docs/screenshots/keywords.png" width="280" /> | <img src="docs/screenshots/audit.png" width="280" /> | <img src="docs/screenshots/mcp.png" width="280" /> |
-
-</details>
 
 ## Quick Start
 
