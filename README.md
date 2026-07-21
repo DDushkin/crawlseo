@@ -166,8 +166,8 @@ Works with Claude Code, Claude Desktop, and Cursor. See [`mcp/README.md`](mcp/RE
 ```bash
 git clone https://github.com/crawlseo/crawlseo.git
 cd crawlseo
-cp .env.example .env.local
-# Edit .env.local with your credentials
+cp .env.example .env
+# Edit .env with your credentials
 docker compose up --build
 ```
 
