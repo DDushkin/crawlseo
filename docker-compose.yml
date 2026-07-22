@@ -2,6 +2,8 @@ services:
   app:
     build: .
     restart: always
+    command: >
+      sh -c "npx prisma@6.19.3 migrate deploy && npm start"
     depends_on:
       db:
         condition: service_healthy
