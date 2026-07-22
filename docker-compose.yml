@@ -2,9 +2,6 @@ services:
   app:
     build: .
     restart: always
-    ports:
-      - "3000:3000"
-    env_file: .env
     depends_on:
       db:
         condition: service_healthy
@@ -15,21 +12,24 @@ services:
       retries: 3
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://crawlseo:crawlseo@db:5432/crawlseo
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_PAGESPEED_KEY: ${GOOGLE_PAGESPEED_KEY}
 
   db:
     image: postgres:16-alpine
     restart: always
-    ports:
-      - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: crawlseo
-      POSTGRES_USER: crawlseo
-      POSTGRES_PASSWORD: crawlseo
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U crawlseo"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
