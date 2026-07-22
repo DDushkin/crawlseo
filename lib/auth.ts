@@ -41,7 +41,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               googleTokens: {
                 accessToken: account.access_token,
                 refreshToken: account.refresh_token,
-                expiresAt: account.expires_at,
+                // account.expires_at is Unix seconds; store ms to match
+                // refreshAccessToken() and getAccessToken()'s Date.now() checks.
+                expiresAt: account.expires_at
+                  ? account.expires_at * 1000
+                  : undefined,
                 tokenType: account.token_type,
                 scope: account.scope,
               },
