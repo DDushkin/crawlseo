@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { listGSCProperties } from "@/lib/google";
+import { listGSCProperties, ReauthRequiredError } from "@/lib/google";
 
 export async function GET() {
   try {
@@ -13,6 +13,13 @@ export async function GET() {
 
     return Response.json(properties);
   } catch (error) {
+    if (error instanceof ReauthRequiredError) {
+      return Response.json(
+        { error: error.message, code: "REAUTH_REQUIRED" },
+        { status: 401 }
+      );
+    }
+
     console.error("Error listing GSC properties:", error);
 
     return Response.json(

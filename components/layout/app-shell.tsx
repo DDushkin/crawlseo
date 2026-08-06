@@ -34,6 +34,9 @@ export function AppShell({
   const initial = displayName.charAt(0).toUpperCase();
   const pathname = usePathname();
 
+  const [imgError, setImgError] = useState(false);
+  const showImage = image && !imgError;
+
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -114,12 +117,13 @@ export function AppShell({
         {!collapsed && (
           <div className="rounded-2xl border border-border bg-card p-3 shadow-sm">
             <div className="mb-3 flex items-center gap-2.5">
-              {image ? (
+              {showImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={image}
-                  alt=""
+                  alt={displayName}
                   className="size-9 rounded-full object-cover"
+                  onError={() => setImgError(true)}
                 />
               ) : (
                 <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-primary to-blue-400 text-sm font-semibold text-primary-foreground">
@@ -155,12 +159,13 @@ export function AppShell({
         {collapsed && (
           <div className="flex flex-col items-center gap-2">
             <ThemeToggle />
-            {image ? (
+            {showImage ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={image}
-                alt=""
+                alt={displayName}
                 className="size-8 rounded-full object-cover"
+                onError={() => setImgError(true)}
               />
             ) : (
               <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-primary to-blue-400 text-xs font-semibold text-primary-foreground">

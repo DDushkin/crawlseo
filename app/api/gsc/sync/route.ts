@@ -1,6 +1,10 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { fetchSearchAnalytics, fetchPageAnalytics } from "@/lib/google";
+import {
+  fetchSearchAnalytics,
+  fetchPageAnalytics,
+  ReauthRequiredError,
+} from "@/lib/google";
 import { getDateRange } from "@/lib/date-utils";
 
 export async function POST(req: Request) {
@@ -114,6 +118,13 @@ export async function POST(req: Request) {
       pagesInserted: pages.length,
     });
   } catch (error) {
+    if (error instanceof ReauthRequiredError) {
+      return Response.json(
+        { error: error.message, code: "REAUTH_REQUIRED" },
+        { status: 401 }
+      );
+    }
+
     console.error("Error syncing GSC data:", error);
 
     return Response.json(

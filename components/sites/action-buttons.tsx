@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -93,6 +95,7 @@ export function VitalsButton({ siteId }: { siteId: string }) {
 
 export function IndexCheckButton({ siteId }: { siteId: string }) {
   const [loading, setLoading] = useState(false);
+  const [reauthRequired, setReauthRequired] = useState(false);
   const [results, setResults] = useState<
     { url: string; coverageState?: string; error?: string; ok?: boolean }[]
   >([]);
@@ -100,11 +103,16 @@ export function IndexCheckButton({ siteId }: { siteId: string }) {
   async function run() {
     setLoading(true);
     setResults([]);
+    setReauthRequired(false);
     try {
       const res = await fetch(`/api/sites/${siteId}/index-status`, {
         method: "POST",
       });
       const data = await res.json();
+      if (res.status === 401 && data.code === "REAUTH_REQUIRED") {
+        setReauthRequired(true);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "Failed");
       setResults(data.results || []);
     } catch (e) {
@@ -130,6 +138,22 @@ export function IndexCheckButton({ siteId }: { siteId: string }) {
       >
         {loading ? "Inspecting…" : "Check index status"}
       </Button>
+      {reauthRequired && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+          <div className="text-sm">
+            <p className="text-muted-foreground">
+              Your Google connection expired.{" "}
+              <button
+                onClick={() => signIn("google")}
+                className="font-medium text-primary underline underline-offset-2"
+              >
+                Reconnect &rarr;
+              </button>
+            </p>
+          </div>
+        </div>
+      )}
       {results.length > 0 && (
         <div className="space-y-2">
           {results.map((r) => (

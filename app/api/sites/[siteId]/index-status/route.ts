@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { inspectUrl } from "@/lib/google/url-inspection-client";
+import { ReauthRequiredError } from "@/lib/google/google-auth";
 import { getTopPages } from "@/lib/seo-metrics";
 
 export const maxDuration = 60;
@@ -58,6 +59,12 @@ export async function POST(
           pageIndexed: status?.pageIndexed,
         });
       } catch (err) {
+        if (err instanceof ReauthRequiredError) {
+          return Response.json(
+            { error: err.message, code: "REAUTH_REQUIRED" },
+            { status: 401 }
+          );
+        }
         results.push({
           url,
           ok: false,
@@ -68,6 +75,13 @@ export async function POST(
 
     return Response.json({ results });
   } catch (error) {
+    if (error instanceof ReauthRequiredError) {
+      return Response.json(
+        { error: error.message, code: "REAUTH_REQUIRED" },
+        { status: 401 }
+      );
+    }
+
     console.error(error);
     return Response.json(
       { error: error instanceof Error ? error.message : "Failed" },

@@ -7,12 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SyncButton } from "@/components/sites/sync-button";
 import { CsvExportButton } from "@/components/ui/csv-export-button";
 import { DataLagBadge } from "@/components/ui/data-lag-badge";
-import {
-  PositionBadge,
-  MetricTable,
-  CtrCell,
-  NumCell,
-} from "@/components/ui/data-table";
+import { KeywordsTable } from "@/components/sites/keywords-table";
 
 interface KeywordsPageProps {
   params: Promise<{ siteId: string }>;
@@ -31,7 +26,8 @@ export default async function KeywordsPage({ params }: KeywordsPageProps) {
     redirect("/sites");
   }
 
-  const keywords = await getTopKeywords(siteId, 28, 100);
+  // Load a wide set so position/impression filters aren't capped to top-by-clicks.
+  const keywords = await getTopKeywords(siteId, 28, 1000);
 
   return (
     <div>
@@ -55,39 +51,7 @@ export default async function KeywordsPage({ params }: KeywordsPageProps) {
           description="Sync Google Search Console to populate query-level performance."
         />
       ) : (
-        <MetricTable
-          headers={[
-            { label: "Query" },
-            { label: "Position", align: "right" },
-            { label: "Clicks", align: "right" },
-            { label: "Impressions", align: "right" },
-            { label: "CTR", align: "right" },
-          ]}
-          footer={`Showing ${keywords.length} keywords · sorted by clicks`}
-        >
-          {keywords.map((keyword) => (
-            <tr
-              key={keyword.query}
-              className="transition-colors hover:bg-muted/25"
-            >
-              <td className="max-w-md px-4 py-3">
-                <span className="font-medium text-foreground">{keyword.query}</span>
-              </td>
-              <td className="px-4 py-3 text-right">
-                <PositionBadge position={keyword.position} />
-              </td>
-              <td className="px-4 py-3 text-right">
-                <NumCell value={keyword.clicks} />
-              </td>
-              <td className="px-4 py-3 text-right">
-                <NumCell value={keyword.impressions} />
-              </td>
-              <td className="px-4 py-3 text-right">
-                <CtrCell ctr={keyword.ctr} />
-              </td>
-            </tr>
-          ))}
-        </MetricTable>
+        <KeywordsTable keywords={keywords} />
       )}
     </div>
   );
