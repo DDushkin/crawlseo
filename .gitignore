@@ -45,3 +45,6 @@ next-env.d.ts
 
 # launch drafts (local only)
 docs/launch/
+
+# Local SEO audit cache
+.seo-cache/
