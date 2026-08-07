@@ -23,11 +23,10 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package-lock.json ./
-# Keep the migration CLI in the image instead of downloading it through npx at
-# container startup. Reading the version from the lockfile keeps it aligned with
-# the generated Prisma client.
-RUN npm install --global "prisma@$(node -p "require('./package-lock.json').packages['node_modules/prisma'].version")" \
-    && npm cache clean --force
+# Do not install Prisma here. The ARM64 build runs this stage through QEMU in
+# GitHub Actions, where Prisma's install script can raise an illegal-instruction
+# error. Coolify runs the startup command natively, after the image is built.
+ENV NPM_CONFIG_CACHE=/tmp/.npm
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
@@ -39,4 +38,4 @@ USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
-CMD ["sh", "-c", "prisma migrate deploy && node server.js"]
+CMD ["sh", "-c", "npx --yes prisma@$(node -p \"require('./package-lock.json').packages['node_modules/prisma'].version\") migrate deploy && node server.js"]
