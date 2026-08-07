@@ -68,10 +68,18 @@ test("does not display recommendations for excluded or canonicalized pages", () 
     }),
   ];
   const issues = [
-    { url: "https://example.com/", severity: "WARNING" },
-    { url: "https://example.com/login", severity: "INFO" },
-    { url: "https://example.com/register?plan=active", severity: "WARNING" },
-    { url: "https://example.com/sitemap.xml", severity: "WARNING" },
+    { url: "https://example.com/", severity: "WARNING", type: "MISSING_H1" },
+    { url: "https://example.com/login", severity: "INFO", type: "MISSING_SCHEMA" },
+    {
+      url: "https://example.com/",
+      severity: "INFO",
+      type: "DUPLICATE_DESCRIPTION",
+      details: {
+        urls: ["https://example.com/", "https://example.com/login"],
+      },
+    },
+    { url: "https://example.com/register?plan=active", severity: "WARNING", type: "MISSING_H1" },
+    { url: "https://example.com/sitemap.xml", severity: "WARNING", type: "MISSING_SITEMAP" },
   ];
 
   assert.deepEqual(

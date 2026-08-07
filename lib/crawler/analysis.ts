@@ -36,14 +36,33 @@ export function isSearchIndexCandidate(page: SeoPageSignals): boolean {
  * a crawled URL intentionally excluded from search.
  */
 export function filterIssuesForSearchCandidates<
-  TIssue extends { url: string },
+  TIssue extends { url: string; type?: string; details?: unknown },
   TPage extends SeoPageSignals,
 >(issues: TIssue[], pages: TPage[]): TIssue[] {
   const indexableByUrl = new Map(
     pages.map((page) => [page.url, isSearchIndexCandidate(page)])
   );
 
-  return issues.filter((issue) => indexableByUrl.get(issue.url) !== false);
+  return issues.filter((issue) => {
+    if (indexableByUrl.get(issue.url) === false) return false;
+
+    if (
+      issue.type !== "DUPLICATE_TITLE" &&
+      issue.type !== "DUPLICATE_DESCRIPTION"
+    ) {
+      return true;
+    }
+
+    const urls = (issue.details as { urls?: unknown } | null)?.urls;
+    if (!Array.isArray(urls)) return true;
+
+    return (
+      urls.filter(
+        (url): url is string =>
+          typeof url === "string" && indexableByUrl.get(url) === true
+      ).length > 1
+    );
+  });
 }
 
 export function findMissingFromSitemap<TPage extends SeoPageSignals>(
