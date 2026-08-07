@@ -284,6 +284,7 @@ enum IssueType {
   MULTIPLE_H1           // More than one H1
   MISSING_ALT           // Images without alt text
   MISSING_CANONICAL     // No canonical tag
+  ORPHAN_PAGE           // Indexable page with no internal inlinks
   MISSING_ROBOTS        // No robots.txt
   MISSING_SITEMAP       // No sitemap.xml
   MISSING_SCHEMA        // No structured data

@@ -5,6 +5,11 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CrawlButton } from "@/components/sites/action-buttons";
 import { CrawlStatusPoller } from "@/components/sites/crawl-status-poller";
+import {
+  findOrphanPages,
+  getIndexingState,
+  isSearchIndexCandidate,
+} from "@/lib/crawler/analysis";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -21,36 +26,36 @@ export default async function CrawlPage({ params }: Props) {
   });
   if (!site || site.userId !== session?.user?.id) redirect("/sites");
 
-  // Check for running crawl
-  const runningCrawl = await db.crawl.findFirst({
-    where: { siteId, status: "RUNNING" },
-    select: { id: true, pagesFound: true, startedAt: true },
-  });
-
-  const latest = await db.crawl.findFirst({
-    where: { siteId, status: "COMPLETED" },
-    orderBy: { finishedAt: "desc" },
-    include: {
-      issues: {
-        where: {
-          NOT: {
-            details: { path: ["kind"], equals: "crawl_summary" },
-          },
+  const [runningCrawl, latest] = await Promise.all([
+    db.crawl.findFirst({
+      where: { siteId, status: "RUNNING" },
+      select: { id: true, pagesFound: true, startedAt: true },
+    }),
+    db.crawl.findFirst({
+      where: { siteId, status: "COMPLETED" },
+      orderBy: { finishedAt: "desc" },
+      include: {
+        issues: {
+          orderBy: [{ severity: "asc" }, { type: "asc" }],
+          take: 1000,
         },
-        orderBy: [{ severity: "asc" }, { type: "asc" }],
-        take: 200,
       },
-    },
-  });
+    }),
+  ]);
 
-  // Get AuditPage data for the latest crawl
-  const auditPages = latest
-    ? await db.auditPage.findMany({
-        where: { crawlId: latest.id },
-        orderBy: { contentScore: "desc" },
-        take: 200,
-      })
-    : [];
+  // Page metadata and link-graph counts are independent once the crawl is known.
+  const [auditPages, internalInlinks] = latest
+    ? await Promise.all([
+        db.auditPage.findMany({
+          where: { crawlId: latest.id },
+          orderBy: { contentScore: "desc" },
+        }),
+        db.auditLink.groupBy({
+          by: ["sourceUrl", "targetUrl"],
+          where: { crawlId: latest.id, isInternal: true },
+        }),
+      ])
+    : [[], []];
 
   const realIssues = latest?.issues.filter((i) => {
     const kind = (i.details as { kind?: string } | null)?.kind;
@@ -63,11 +68,18 @@ export default async function CrawlPage({ params }: Props) {
     INFO: realIssues.filter((i) => i.severity === "INFO").length,
   };
 
-  const avgContentScore = auditPages.length > 0
-    ? Math.round(auditPages.reduce((s, p) => s + p.contentScore, 0) / auditPages.length)
-    : null;
+  const searchPages = auditPages.filter(isSearchIndexCandidate);
+  const avgContentScore =
+    searchPages.length > 0
+      ? Math.round(searchPages.reduce((s, p) => s + p.contentScore, 0) / searchPages.length)
+      : null;
 
-  const orphanCount = auditPages.filter((p) => p.internalLinks === 0 && p.url !== "/").length;
+  const inlinkCount = new Map<string, number>();
+  for (const link of internalInlinks) {
+    inlinkCount.set(link.targetUrl, (inlinkCount.get(link.targetUrl) ?? 0) + 1);
+  }
+  const seedUrl = site.domain.startsWith("http") ? site.domain : `https://${site.domain}`;
+  const orphanCount = findOrphanPages(auditPages, inlinkCount, seedUrl).length;
 
   return (
     <div>
@@ -101,8 +113,16 @@ export default async function CrawlPage({ params }: Props) {
               hint="/100"
               tone={(latest.healthScore ?? 0) >= 80 ? "good" : (latest.healthScore ?? 0) >= 60 ? "mid" : "bad"}
             />
-            <ScoreCard label="Pages" value={String(latest.pagesFound)} hint="crawled" />
-            <ScoreCard label="Issues" value={String(realIssues.length)} hint={`${bySeverity.CRITICAL} critical`} />
+            <ScoreCard
+              label="Pages"
+              value={String(latest.pagesFound)}
+              hint={`${searchPages.length} indexable`}
+            />
+            <ScoreCard
+              label="Issues"
+              value={String(realIssues.length)}
+              hint={`${bySeverity.CRITICAL} critical`}
+            />
             <ScoreCard
               label="Content avg"
               value={String(avgContentScore ?? "—")}
@@ -111,7 +131,7 @@ export default async function CrawlPage({ params }: Props) {
             <ScoreCard
               label="Orphans"
               value={String(orphanCount)}
-              hint="no inlinks"
+              hint="indexable · no inlinks"
             />
           </div>
 
@@ -130,59 +150,95 @@ export default async function CrawlPage({ params }: Props) {
                     <tr className="border-b border-border/50 bg-muted/20 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
                       <th className="px-4 py-3 text-left">URL</th>
                       <th className="px-4 py-3 text-right">Status</th>
+                      <th className="px-4 py-3 text-right">Indexing</th>
                       <th className="px-4 py-3 text-right">Score</th>
                       <th className="px-4 py-3 text-right">Words</th>
                       <th className="px-4 py-3 text-right">H1s</th>
                       <th className="px-4 py-3 text-right">Images</th>
-                      <th className="px-4 py-3 text-right">Int. links</th>
+                      <th className="px-4 py-3 text-right">Inlinks</th>
+                      <th className="px-4 py-3 text-right">Outlinks</th>
                       <th className="px-4 py-3 text-right">Time</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/40">
-                    {auditPages.slice(0, 100).map((p) => (
-                      <tr key={p.id} className="hover:bg-muted/20">
-                        <td className="max-w-md truncate px-4 py-2.5 font-medium" title={p.url}>
-                          {p.url}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-data">
-                          <span className={cn(
-                            p.statusCode >= 400 ? "text-danger" :
-                            p.statusCode >= 300 ? "text-warning" : "text-signal"
-                          )}>
-                            {p.statusCode}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-data">
-                          <span className={cn(
-                            p.contentScore >= 70 ? "text-signal" :
-                            p.contentScore >= 50 ? "text-warning" : "text-danger"
-                          )}>
-                            {p.contentScore}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-data text-muted-foreground">
-                          {p.wordCount}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-data text-muted-foreground">
-                          {p.h1Count}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-data text-muted-foreground">
-                          {p.imagesMissingAlt > 0 ? (
-                            <span className="text-warning">
-                              {p.imagesMissingAlt}/{p.imageCount}
+                    {auditPages.slice(0, 100).map((p) => {
+                      const indexingState = getIndexingState(p);
+                      const searchCandidate = indexingState === "indexable";
+                      return (
+                        <tr key={p.id} className="hover:bg-muted/20">
+                          <td className="max-w-md truncate px-4 py-2.5 font-medium" title={p.url}>
+                            {p.url}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-data">
+                            <span
+                              className={cn(
+                                p.statusCode >= 400
+                                  ? "text-danger"
+                                  : p.statusCode >= 300
+                                    ? "text-warning"
+                                    : "text-signal"
+                              )}
+                            >
+                              {p.statusCode}
                             </span>
-                          ) : (
-                            p.imageCount
-                          )}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-data text-muted-foreground">
-                          {p.internalLinks}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-data text-muted-foreground">
-                          {p.responseTimeMs}ms
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-data">
+                            <span
+                              className={cn(
+                                "text-xs",
+                                indexingState === "indexable" && "text-signal",
+                                indexingState === "canonicalized" && "text-warning",
+                                indexingState === "excluded" && "text-muted-foreground",
+                                indexingState === "non_success" && "text-danger"
+                              )}
+                            >
+                              {indexingState === "non_success"
+                                ? "Non-2xx"
+                                : indexingState.charAt(0).toUpperCase() + indexingState.slice(1)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-data">
+                            <span
+                              className={cn(
+                                !searchCandidate
+                                  ? "text-muted-foreground"
+                                  : p.contentScore >= 70
+                                    ? "text-signal"
+                                    : p.contentScore >= 50
+                                      ? "text-warning"
+                                      : "text-danger"
+                              )}
+                            >
+                              {searchCandidate ? p.contentScore : "—"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-data text-muted-foreground">
+                            {p.wordCount}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-data text-muted-foreground">
+                            {p.h1Count}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-data text-muted-foreground">
+                            {p.imagesMissingAlt > 0 ? (
+                              <span className="text-warning">
+                                {p.imagesMissingAlt}/{p.imageCount}
+                              </span>
+                            ) : (
+                              p.imageCount
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-data text-muted-foreground">
+                            {inlinkCount.get(p.url) ?? 0}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-data text-muted-foreground">
+                            {p.internalLinks}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-data text-muted-foreground">
+                            {p.responseTimeMs}ms
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

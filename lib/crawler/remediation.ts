@@ -57,7 +57,12 @@ export const REMEDIATION: Record<string, { title: string; howToFix: string }> = 
   MISSING_SITEMAP: {
     title: "Missing or Incomplete Sitemap",
     howToFix:
-      "Create an XML sitemap listing all indexable pages and submit it to Google Search Console. Ensure every crawlable page is included in the sitemap.",
+      "Create an XML sitemap listing every canonical, indexable page intended for search and submit it to Google Search Console. Exclude noindex, redirected, private, and canonicalized URL variants.",
+  },
+  ORPHAN_PAGE: {
+    title: "Orphan Page",
+    howToFix:
+      "Add at least one crawlable internal link from a relevant indexable page. If the page should not appear in search, use noindex or canonicalize it instead of adding it to the sitemap only.",
   },
   MISSING_SCHEMA: {
     title: "No Structured Data",

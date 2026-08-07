@@ -3,6 +3,14 @@ import { lookup } from "dns/promises";
 import { db } from "@/lib/db";
 import type { IssueSeverity, IssueType } from "@prisma/client";
 import robotsParser from "robots-parser";
+import {
+  buildInlinkCount,
+  computeHealthScore,
+  findMissingFromSitemap,
+  findOrphanPages,
+  getIndexingState,
+  isSearchIndexCandidate,
+} from "./analysis";
 import { REMEDIATION } from "./remediation";
 
 const ABSOLUTE_MAX_PAGES = 2000;
@@ -178,7 +186,8 @@ function parseHtml(
   loadMs: number,
   bytes: number,
   redirectUrl: string | null,
-  seedUrl: string
+  seedUrl: string,
+  robotsHeader: string | null
 ): PageSnapshot {
   const titleRaw = extractTag(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleRaw
@@ -209,8 +218,9 @@ function parseHtml(
       /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i
     );
 
-  // robots meta
-  const robotsMeta =
+  // Combine page-level directives from HTML and HTTP. Search engines honor
+  // both meta robots/googlebot tags and X-Robots-Tag response headers.
+  const robotsMetaTag =
     extractTag(
       html,
       /<meta[^>]+name=["']robots["'][^>]+content=["']([^"']*)["']/i
@@ -219,6 +229,18 @@ function parseHtml(
       html,
       /<meta[^>]+content=["']([^"']*)["'][^>]+name=["']robots["']/i
     );
+  const googlebotMetaTag =
+    extractTag(
+      html,
+      /<meta[^>]+name=["']googlebot["'][^>]+content=["']([^"']*)["']/i
+    ) ||
+    extractTag(
+      html,
+      /<meta[^>]+content=["']([^"']*)["'][^>]+name=["']googlebot["']/i
+    );
+  const robotsMeta =
+    [robotsMetaTag, googlebotMetaTag, robotsHeader].filter(Boolean).join(", ") ||
+    null;
 
   const hasSchema =
     /application\/ld\+json/i.test(html) ||
@@ -376,6 +398,7 @@ async function fetchPage(url: string): Promise<{
   loadMs: number;
   bytes: number;
   contentType: string;
+  robotsHeader: string | null;
 }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -422,6 +445,7 @@ async function fetchPage(url: string): Promise<{
       loadMs: Date.now() - started,
       bytes,
       contentType,
+      robotsHeader: res.headers.get("x-robots-tag"),
     };
   } finally {
     clearTimeout(timer);
@@ -464,7 +488,7 @@ function parseSitemapUrls(xml: string, base: string): string[] {
 /*  Issue detection per page                                          */
 /* ------------------------------------------------------------------ */
 
-function issuesFromPage(page: PageSnapshot, _seedOrigin: string): IssueInput[] {
+function issuesFromPage(page: PageSnapshot): IssueInput[] {
   const issues: IssueInput[] = [];
   const { url } = page;
 
@@ -483,6 +507,10 @@ function issuesFromPage(page: PageSnapshot, _seedOrigin: string): IssueInput[] {
     });
     return issues;
   }
+
+  // Crawling a noindex or canonicalized URL is expected and useful for link
+  // discovery, but its on-page content is not a search result candidate.
+  if (!isSearchIndexCandidate(page)) return issues;
 
   if (!page.title) {
     issues.push({
@@ -577,17 +605,6 @@ function issuesFromPage(page: PageSnapshot, _seedOrigin: string): IssueInput[] {
   }
 
   return issues;
-}
-
-function computeHealthScore(issues: IssueInput[], pagesFound: number): number {
-  if (pagesFound === 0) return 0;
-  let score = 100;
-  for (const issue of issues) {
-    if (issue.severity === "CRITICAL") score -= 8;
-    else if (issue.severity === "WARNING") score -= 3;
-    else score -= 1;
-  }
-  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 /* ------------------------------------------------------------------ */
@@ -808,11 +825,13 @@ async function executeCrawl(
         res.loadMs,
         res.bytes,
         redirectUrl,
-        seedUrl
+        seedUrl,
+        res.robotsHeader
       );
 
       // Mixed content check on raw HTML
       if (
+        isSearchIndexCandidate(page) &&
         page.url.startsWith("https://") &&
         /(?:src|href)=["']http:\/\//i.test(res.html)
       ) {
@@ -827,7 +846,7 @@ async function executeCrawl(
 
       pages.push(page);
       allLinks.push(...page.links);
-      issues.push(...issuesFromPage(page, origin));
+      issues.push(...issuesFromPage(page));
 
       // Enqueue discovered internal links
       for (const link of page.internalOutlinks) {
@@ -844,9 +863,10 @@ async function executeCrawl(
   }
 
   /* ---- Duplicate titles / descriptions ---- */
+  const searchPages = pages.filter(isSearchIndexCandidate);
   const byTitle = new Map<string, string[]>();
   const byDesc = new Map<string, string[]>();
-  for (const p of pages) {
+  for (const p of searchPages) {
     if (p.title) {
       const list = byTitle.get(p.title) || [];
       list.push(p.url);
@@ -894,26 +914,13 @@ async function executeCrawl(
   }
 
   /* ---- Sitemap coverage & orphan detection ---- */
-  const crawledSet = new Set(pages.map((p) => p.url));
-  const sitemapSet = new Set(sitemapUrls);
-  const missingFromSitemap = [...crawledSet].filter(
-    (u) => sitemapSet.size > 0 && !sitemapSet.has(u)
-  );
+  const missingFromSitemap = findMissingFromSitemap(pages, sitemapUrls);
+  const inlinkCount = buildInlinkCount(pages);
+  const orphans = findOrphanPages(pages, inlinkCount, seedUrl);
 
-  const inlinkCount = new Map<string, number>();
-  for (const p of pages) {
-    for (const out of p.internalOutlinks) {
-      inlinkCount.set(out, (inlinkCount.get(out) || 0) + 1);
-    }
-  }
-  const orphans = pages.filter((p) => {
-    const isHome = new URL(p.url).pathname === "/" || p.url === seedUrl;
-    return !isHome && (inlinkCount.get(p.url) || 0) === 0;
-  });
-
-  for (const url of missingFromSitemap.slice(0, 50)) {
+  for (const page of missingFromSitemap.slice(0, 50)) {
     issues.push({
-      url,
+      url: page.url,
       type: "MISSING_SITEMAP",
       severity: "INFO",
       message: "Crawled page not listed in sitemap",
@@ -927,7 +934,7 @@ async function executeCrawl(
   for (const p of orphans.slice(0, 50)) {
     issues.push({
       url: p.url,
-      type: "MISSING_CANONICAL",
+      type: "ORPHAN_PAGE",
       severity: "WARNING",
       message: "Potential orphan page (no internal inlinks found)",
       details: { kind: "orphan", contentScore: p.contentScore },
@@ -935,11 +942,12 @@ async function executeCrawl(
   }
 
   /* ---- Compute scores ---- */
-  const healthScore = computeHealthScore(issues, pages.length);
+  const healthScore = computeHealthScore(issues, searchPages.length);
   const avgContentScore =
-    pages.length > 0
+    searchPages.length > 0
       ? Math.round(
-          pages.reduce((s, p) => s + p.contentScore, 0) / pages.length
+          searchPages.reduce((s, p) => s + p.contentScore, 0) /
+            searchPages.length
         )
       : 0;
 
@@ -1015,7 +1023,7 @@ async function executeCrawl(
   }
 
   // Thin content pages as INFO issues
-  const thin = pages.filter((p) => p.contentScore < 60);
+  const thin = searchPages.filter((p) => p.contentScore < 60);
   if (thin.length) {
     await db.crawlIssue.createMany({
       data: thin.slice(0, 50).map((p) => ({
@@ -1049,6 +1057,7 @@ async function executeCrawl(
           url: p.url,
           statusCode: p.statusCode,
           title: p.title,
+          indexingState: getIndexingState(p),
           contentScore: p.contentScore,
           wordCount: p.wordCount,
           outlinks: p.internalOutlinks.length,
@@ -1056,6 +1065,7 @@ async function executeCrawl(
           inlinks: inlinkCount.get(p.url) || 0,
         })),
         sitemapUrls: sitemapUrls.length,
+        indexablePages: searchPages.length,
         missingFromSitemap: missingFromSitemap.length,
         orphans: orphans.length,
         avgContentScore,
@@ -1064,9 +1074,7 @@ async function executeCrawl(
   });
 
   /* ---- Finalize crawl record ---- */
-  const finalIssues = await db.crawlIssue.count({
-    where: { crawlId },
-  });
+  const finalIssues = issues.length;
 
   await db.crawl.update({
     where: { id: crawlId },

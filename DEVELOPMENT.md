@@ -134,10 +134,13 @@ Copy `.env.example` to `.env.local` and update:
 - [ ] Keywords table loads and sorts
 - [ ] Site switcher works
 
-### Run Tests (future)
+### Run Tests
 ```bash
 npm run test
 ```
+
+The automated crawler tests cover indexability classification, sitemap coverage,
+canonical URL variants, internal inlink counting, orphan detection, and health scoring.
 
 ## Docker for Production
 
