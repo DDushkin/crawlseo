@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildInlinkCount,
   computeHealthScore,
+  filterIssuesForSearchCandidates,
   findMissingFromSitemap,
   findOrphanPages,
   getIndexingState,
@@ -55,6 +56,28 @@ test("sitemap coverage ignores noindex and canonicalized URL variants", () => {
   const missing = findMissingFromSitemap(pages, ["https://example.com/"]);
 
   assert.deepEqual(missing.map(({ url }) => url), ["https://example.com/guide"]);
+});
+
+test("does not display recommendations for excluded or canonicalized pages", () => {
+  const pages = [
+    page({ url: "https://example.com/" }),
+    page({ url: "https://example.com/login", indexable: false }),
+    page({
+      url: "https://example.com/register?plan=active",
+      canonical: "https://example.com/register",
+    }),
+  ];
+  const issues = [
+    { url: "https://example.com/", severity: "WARNING" },
+    { url: "https://example.com/login", severity: "INFO" },
+    { url: "https://example.com/register?plan=active", severity: "WARNING" },
+    { url: "https://example.com/sitemap.xml", severity: "WARNING" },
+  ];
+
+  assert.deepEqual(
+    filterIssuesForSearchCandidates(issues, pages).map(({ url }) => url),
+    ["https://example.com/", "https://example.com/sitemap.xml"]
+  );
 });
 
 test("orphan detection uses incoming links and only evaluates search candidates", () => {

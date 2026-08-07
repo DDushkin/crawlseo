@@ -6,6 +6,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { CrawlButton } from "@/components/sites/action-buttons";
 import { CrawlStatusPoller } from "@/components/sites/crawl-status-poller";
 import {
+  computeHealthScore,
+  filterIssuesForSearchCandidates,
   findOrphanPages,
   getIndexingState,
   isSearchIndexCandidate,
@@ -57,10 +59,14 @@ export default async function CrawlPage({ params }: Props) {
       ])
     : [[], []];
 
-  const realIssues = latest?.issues.filter((i) => {
+  const recordedIssues = latest?.issues.filter((i) => {
     const kind = (i.details as { kind?: string } | null)?.kind;
     return kind !== "crawl_summary" && kind !== "content_score";
   }) || [];
+
+  // New crawls already avoid creating these records. This also keeps existing
+  // crawl history from suggesting SEO work on noindex/canonicalized URLs.
+  const realIssues = filterIssuesForSearchCandidates(recordedIssues, auditPages);
 
   const bySeverity = {
     CRITICAL: realIssues.filter((i) => i.severity === "CRITICAL").length,
@@ -69,6 +75,9 @@ export default async function CrawlPage({ params }: Props) {
   };
 
   const searchPages = auditPages.filter(isSearchIndexCandidate);
+  const healthScore = auditPages.length > 0
+    ? computeHealthScore(realIssues, searchPages.length)
+    : (latest?.healthScore ?? 0);
   const avgContentScore =
     searchPages.length > 0
       ? Math.round(searchPages.reduce((s, p) => s + p.contentScore, 0) / searchPages.length)
@@ -109,9 +118,9 @@ export default async function CrawlPage({ params }: Props) {
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
             <ScoreCard
               label="Health"
-              value={`${latest.healthScore ?? "—"}`}
+              value={`${healthScore}`}
               hint="/100"
-              tone={(latest.healthScore ?? 0) >= 80 ? "good" : (latest.healthScore ?? 0) >= 60 ? "mid" : "bad"}
+              tone={healthScore >= 80 ? "good" : healthScore >= 60 ? "mid" : "bad"}
             />
             <ScoreCard
               label="Pages"

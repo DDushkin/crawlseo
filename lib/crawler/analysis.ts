@@ -30,6 +30,22 @@ export function isSearchIndexCandidate(page: SeoPageSignals): boolean {
   return getIndexingState(page) === "indexable";
 }
 
+/**
+ * Retain site-level issues and issues for URLs that were not stored as crawl
+ * pages (for example, a failed request), but never display recommendations for
+ * a crawled URL intentionally excluded from search.
+ */
+export function filterIssuesForSearchCandidates<
+  TIssue extends { url: string },
+  TPage extends SeoPageSignals,
+>(issues: TIssue[], pages: TPage[]): TIssue[] {
+  const indexableByUrl = new Map(
+    pages.map((page) => [page.url, isSearchIndexCandidate(page)])
+  );
+
+  return issues.filter((issue) => indexableByUrl.get(issue.url) !== false);
+}
+
 export function findMissingFromSitemap<TPage extends SeoPageSignals>(
   pages: TPage[],
   sitemapUrls: Iterable<string>
