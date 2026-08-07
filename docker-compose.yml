@@ -1,6 +1,9 @@
 services:
   app:
     image: ${CRAWLSEO_IMAGE:-ghcr.io/crawlseo/crawlseo:latest}
+    # CRAWLSEO_IMAGE uses a mutable tag (for example, :main). Pull it before
+    # each Coolify deployment instead of reusing Docker's cached image.
+    pull_policy: always
     restart: always
     # Coolify provides its own proxy, so do not publish an application port.
     # Keep runtime variables explicit: Coolify injects them without a .env file.
