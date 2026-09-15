@@ -27,9 +27,9 @@ type DomainData = {
     nofollow: number;
   } | null;
   metrics?: {
-    current: { clicks: number; impressions: number; avgPosition: number };
-    previous: { clicks: number; impressions: number; avgPosition: number };
-    deltas: { clicks: number; impressions: number; avgPosition: number };
+    current: { clicks: number; impressions: number; avgPosition: number | null };
+    previous: { clicks: number; impressions: number; avgPosition: number | null };
+    deltas: { clicks: number; impressions: number; avgPosition: number | null };
   };
 };
 

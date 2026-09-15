@@ -46,7 +46,7 @@ export async function evaluateAlertsForUser(userId: string): Promise<AlertFire[]
         const { deltas } = await getSitePeriodMetrics(alert.siteId, 28);
         // avgPosition delta: positive = improved; fire when worsened (negative)
         const threshold = config.thresholdPositions ?? -2;
-        if (deltas.avgPosition <= threshold) {
+        if (deltas.avgPosition !== null && deltas.avgPosition <= threshold) {
           fires.push({
             alertId: alert.id,
             type: alert.type,

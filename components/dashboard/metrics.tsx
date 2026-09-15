@@ -16,12 +16,12 @@ function MetricCard({
 }: {
   label: string;
   value: string;
-  delta: number;
+  delta: number | null;
   deltaLabel: string;
   hint?: string;
 }) {
-  const isFlat = !Number.isFinite(delta) || Math.abs(delta) < 0.05;
-  const good = delta > 0;
+  const isFlat = delta === null || !Number.isFinite(delta) || Math.abs(delta) < 0.05;
+  const good = delta !== null && delta > 0;
 
   return (
     <div className="panel relative p-5">
@@ -32,7 +32,7 @@ function MetricCard({
         <p className="font-heading text-atom-display1 font-semibold tracking-tight text-foreground">
           {value}
         </p>
-        <div
+        {delta !== null && <div
           className={cn(
             "rounded-md px-2 py-1 font-data text-xs font-semibold",
             isFlat && "bg-muted text-muted-foreground",
@@ -41,7 +41,7 @@ function MetricCard({
           )}
         >
           {isFlat ? "—" : deltaLabel}
-        </div>
+        </div>}
       </div>
       <p className="mt-2 text-atom-caption text-muted-foreground">
         {hint ?? "vs previous period"}
@@ -71,16 +71,16 @@ export async function DashboardMetrics({ siteId, days = 28 }: MetricsProps) {
       />
       <MetricCard
         label="Avg position"
-        value={current.avgPosition > 0 ? current.avgPosition.toFixed(1) : "—"}
+        value={current.avgPosition === null ? "—" : current.avgPosition.toFixed(1)}
         delta={deltas.avgPosition}
-        deltaLabel={formatDeltaPosition(deltas.avgPosition)}
+        deltaLabel={deltas.avgPosition === null ? "" : formatDeltaPosition(deltas.avgPosition)}
         hint="Weighted by impressions · lower is better"
       />
       <MetricCard
         label="Avg CTR"
         value={formatCtr(current.avgCtr)}
         delta={deltas.avgCtr}
-        deltaLabel={formatDeltaPercent(deltas.avgCtr)}
+        deltaLabel={deltas.avgCtr === null ? "" : formatDeltaPercent(deltas.avgCtr)}
         hint={`${current.uniqueKeywords.toLocaleString()} keywords with data`}
       />
     </div>

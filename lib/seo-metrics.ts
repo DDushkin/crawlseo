@@ -1,28 +1,31 @@
 import { db } from "@/lib/db";
-import { calculatePercentChange, getDateRange } from "@/lib/date-utils";
+import { getDateRange } from "@/lib/date-utils";
+import { comparePeriods, emptyGscPeriodMetrics, getGscDailyTraffic, getGscPeriodMetrics, getGscReadContext, getGscTopPages, getGscTopQueries, getStoredGscRange } from "@/lib/gsc/read-model";
 
 export type PeriodMetrics = {
   clicks: number;
   impressions: number;
-  avgPosition: number;
-  avgCtr: number;
+  avgPosition: number | null;
+  avgCtr: number | null;
   uniqueKeywords: number;
+  startDate: string | null;
+  endDate: string | null;
 };
 
 export type KeywordRow = {
   query: string;
   clicks: number;
   impressions: number;
-  position: number;
-  ctr: number;
+  position: number | null;
+  ctr: number | null;
 };
 
 export type PageRow = {
   url: string;
   clicks: number;
   impressions: number;
-  position: number;
-  ctr: number;
+  position: number | null;
+  ctr: number | null;
 };
 
 export type DailyTraffic = {
@@ -75,13 +78,15 @@ function aggregatePeriod(
   return {
     clicks,
     impressions,
-    avgPosition: weightedPosition(rows),
-    avgCtr: impressions > 0 ? clicks / impressions : 0,
+    avgPosition: impressions > 0 ? weightedPosition(rows) : null,
+    avgCtr: impressions > 0 ? clicks / impressions : null,
     uniqueKeywords: queries.size,
+    startDate: null,
+    endDate: null,
   };
 }
 
-export async function getSitePeriodMetrics(
+async function legacyGetSitePeriodMetrics(
   siteId: string,
   days = 28
 ): Promise<{
@@ -90,8 +95,8 @@ export async function getSitePeriodMetrics(
   deltas: {
     clicks: number;
     impressions: number;
-    avgPosition: number;
-    avgCtr: number;
+    avgPosition: number | null;
+    avgCtr: number | null;
   };
 }> {
   const currentRange = parseRange(days);
@@ -126,25 +131,15 @@ export async function getSitePeriodMetrics(
 
   const current = aggregatePeriod(currentRows);
   const previous = aggregatePeriod(previousRows);
-
-  return {
-    current,
-    previous,
-    deltas: {
-      clicks: calculatePercentChange(current.clicks, previous.clicks),
-      impressions: calculatePercentChange(
-        current.impressions,
-        previous.impressions
-      ),
-      // Positive delta = improved (lower position is better)
-      avgPosition: previous.avgPosition - current.avgPosition,
-      avgCtr: calculatePercentChange(current.avgCtr, previous.avgCtr),
-    },
-  };
+  current.startDate = currentRange.start.toISOString().slice(0, 10);
+  current.endDate = currentRange.end.toISOString().slice(0, 10);
+  previous.startDate = prevRange.start.toISOString().slice(0, 10);
+  previous.endDate = prevRange.end.toISOString().slice(0, 10);
+  return comparePeriods(current, previous);
 }
 
 /** Aggregate keyword rows across the period (sum metrics, weighted position). */
-export async function getTopKeywords(
+async function legacyGetTopKeywords(
   siteId: string,
   days = 28,
   limit = 50
@@ -183,8 +178,8 @@ export async function getTopKeywords(
   return Array.from(byQuery.entries())
     .map(([query, data]) => {
       const weight = Math.max(data.impressions, 1);
-      const position = data.weightedPos / weight;
-      const ctr = data.impressions > 0 ? data.clicks / data.impressions : 0;
+      const position = data.impressions > 0 ? data.weightedPos / weight : null;
+      const ctr = data.impressions > 0 ? data.clicks / data.impressions : null;
       return {
         query,
         clicks: data.clicks,
@@ -197,7 +192,7 @@ export async function getTopKeywords(
     .slice(0, limit);
 }
 
-export async function getTopPages(
+async function legacyGetTopPages(
   siteId: string,
   days = 28,
   limit = 50
@@ -236,8 +231,8 @@ export async function getTopPages(
   return Array.from(byUrl.entries())
     .map(([url, data]) => {
       const weight = Math.max(data.impressions, 1);
-      const position = data.weightedPos / weight;
-      const ctr = data.impressions > 0 ? data.clicks / data.impressions : 0;
+      const position = data.impressions > 0 ? data.weightedPos / weight : null;
+      const ctr = data.impressions > 0 ? data.clicks / data.impressions : null;
       return {
         url,
         clicks: data.clicks,
@@ -250,7 +245,7 @@ export async function getTopPages(
     .slice(0, limit);
 }
 
-export async function getDailyTraffic(
+async function legacyGetDailyTraffic(
   siteId: string,
   days = 90
 ): Promise<DailyTraffic[]> {
@@ -294,12 +289,41 @@ export async function getDailyTraffic(
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export function formatPosition(position: number): string {
-  if (!Number.isFinite(position) || position <= 0) return "—";
+export async function getSitePeriodMetrics(siteId: string, days = 28) {
+  const context = await getGscReadContext(siteId);
+  if (!context.useV2) return legacyGetSitePeriodMetrics(siteId, days);
+  const range = await getStoredGscRange(siteId, days);
+  return range ? getGscPeriodMetrics(siteId, range) : emptyGscPeriodMetrics();
+}
+
+export async function getTopKeywords(siteId: string, days = 28, limit = 50): Promise<KeywordRow[]> {
+  const context = await getGscReadContext(siteId);
+  if (!context.useV2) return legacyGetTopKeywords(siteId, days, limit);
+  const range = await getStoredGscRange(siteId, days);
+  return range ? getGscTopQueries(siteId, range, limit) : [];
+}
+
+export async function getTopPages(siteId: string, days = 28, limit = 50): Promise<PageRow[]> {
+  const context = await getGscReadContext(siteId);
+  if (!context.useV2) return legacyGetTopPages(siteId, days, limit);
+  const range = await getStoredGscRange(siteId, days);
+  return range ? getGscTopPages(siteId, range, limit) : [];
+}
+
+export async function getDailyTraffic(siteId: string, days = 90): Promise<DailyTraffic[]> {
+  const context = await getGscReadContext(siteId);
+  if (!context.useV2) return legacyGetDailyTraffic(siteId, days);
+  const range = await getStoredGscRange(siteId, days);
+  return range ? getGscDailyTraffic(siteId, range) : [];
+}
+
+export function formatPosition(position: number | null): string {
+  if (position === null || !Number.isFinite(position) || position <= 0) return "—";
   return position.toFixed(1);
 }
 
-export function formatCtr(ctr: number): string {
+export function formatCtr(ctr: number | null): string {
+  if (ctr === null) return "—";
   return `${(ctr * 100).toFixed(2)}%`;
 }
 

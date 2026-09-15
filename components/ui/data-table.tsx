@@ -1,8 +1,8 @@
 import { cn } from "@/lib/utils";
 import { positionBand, formatPosition, formatCtr } from "@/lib/seo-metrics";
 
-export function PositionBadge({ position }: { position: number }) {
-  const band = positionBand(position);
+export function PositionBadge({ position }: { position: number | null }) {
+  const band = position === null ? null : positionBand(position);
   return (
     <span
       className={cn(
@@ -58,7 +58,7 @@ export function MetricTable({
   );
 }
 
-export function CtrCell({ ctr }: { ctr: number }) {
+export function CtrCell({ ctr }: { ctr: number | null }) {
   return <span className="font-data text-foreground/90">{formatCtr(ctr)}</span>;
 }
 

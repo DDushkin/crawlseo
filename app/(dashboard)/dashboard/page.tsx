@@ -140,16 +140,16 @@ export default async function DashboardPage() {
                 <Stat
                   label="Avg pos"
                   value={
-                    metrics.current.avgPosition > 0
-                      ? metrics.current.avgPosition.toFixed(1)
-                      : "—"
+                    metrics.current.avgPosition === null
+                      ? "—"
+                      : metrics.current.avgPosition.toFixed(1)
                   }
                   delta={
-                    metrics.deltas.avgPosition === 0
+                    metrics.deltas.avgPosition === null ? undefined : metrics.deltas.avgPosition === 0
                       ? "0"
                       : `${metrics.deltas.avgPosition > 0 ? "+" : ""}${metrics.deltas.avgPosition.toFixed(1)}`
                   }
-                  positive={metrics.deltas.avgPosition >= 0}
+                  positive={metrics.deltas.avgPosition !== null && metrics.deltas.avgPosition >= 0}
                 />
                 <Stat
                   label="Keywords"

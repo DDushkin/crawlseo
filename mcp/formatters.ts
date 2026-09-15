@@ -23,11 +23,13 @@ function num(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-function pct(n: number): string {
+function pct(n: number | null): string {
+  if (n === null) return "—";
   return `${(n * 100).toFixed(1)}%`;
 }
 
-function pos(n: number): string {
+function pos(n: number | null): string {
+  if (n === null) return "—";
   if (!Number.isFinite(n) || n <= 0) return "-";
   return n.toFixed(1);
 }
@@ -44,8 +46,10 @@ export function formatSiteOverview(site: any): string {
     lines.push("-- Period Metrics (current vs previous) --");
     lines.push(`Clicks:      ${num(m.current.clicks)} (${m.deltas.clicks > 0 ? "+" : ""}${m.deltas.clicks}%)`);
     lines.push(`Impressions: ${num(m.current.impressions)} (${m.deltas.impressions > 0 ? "+" : ""}${m.deltas.impressions}%)`);
-    lines.push(`Avg Position: ${pos(m.current.avgPosition)} (${m.deltas.avgPosition > 0 ? "+" : ""}${m.deltas.avgPosition.toFixed(1)} improvement)`);
-    lines.push(`Avg CTR:     ${pct(m.current.avgCtr)} (${m.deltas.avgCtr > 0 ? "+" : ""}${m.deltas.avgCtr}%)`);
+    const positionDelta = m.deltas.avgPosition === null ? "" : ` (${m.deltas.avgPosition > 0 ? "+" : ""}${m.deltas.avgPosition.toFixed(1)} improvement)`;
+    const ctrDelta = m.deltas.avgCtr === null ? "" : ` (${m.deltas.avgCtr > 0 ? "+" : ""}${m.deltas.avgCtr}%)`;
+    lines.push(`Avg Position: ${pos(m.current.avgPosition)}${positionDelta}`);
+    lines.push(`Avg CTR:     ${pct(m.current.avgCtr)}${ctrDelta}`);
     lines.push(`Keywords:    ${num(m.current.uniqueKeywords)}`);
   }
 

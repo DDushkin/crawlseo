@@ -27,12 +27,19 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "ctr", label: "CTR" },
 ];
 
-function matchesPosition(position: number, filter: PositionFilter): boolean {
+export function matchesPosition(position: number | null, filter: PositionFilter): boolean {
   if (filter === "all") return true;
+  if (position === null) return false;
   if (filter === "top3") return position > 0 && position <= 3;
   if (filter === "top10") return position > 0 && position <= 10;
   if (filter === "11-20") return position > 10 && position <= 20;
   return position > 20;
+}
+
+export function compareNullableMetric(a: number | null, b: number | null, direction: "asc" | "desc"): number {
+  if (a === null) return b === null ? 0 : 1;
+  if (b === null) return -1;
+  return direction === "asc" ? a - b : b - a;
 }
 
 function parseMin(value: string): number | null {
@@ -67,13 +74,13 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
 
     rows.sort((a, b) => {
       if (sortBy === "position") {
-        return a.position - b.position || b.impressions - a.impressions;
+        return compareNullableMetric(a.position, b.position, "asc") || b.impressions - a.impressions;
       }
       if (sortBy === "impressions") {
         return b.impressions - a.impressions || b.clicks - a.clicks;
       }
       if (sortBy === "ctr") {
-        return b.ctr - a.ctr || b.impressions - a.impressions;
+        return compareNullableMetric(a.ctr, b.ctr, "desc") || b.impressions - a.impressions;
       }
       return b.clicks - a.clicks || b.impressions - a.impressions;
     });

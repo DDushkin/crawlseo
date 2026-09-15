@@ -1,6 +1,10 @@
 import { db } from "@/lib/db";
 import { getDateRange } from "@/lib/date-utils";
-import { getTopKeywords, getTopPages } from "@/lib/seo-metrics";
+import { getTopKeywords, getTopPages, type KeywordRow } from "@/lib/seo-metrics";
+
+function hasKnownMetrics(row: KeywordRow): row is KeywordRow & { position: number; ctr: number } {
+  return row.position !== null && row.ctr !== null;
+}
 
 function range(days: number) {
   const { start, end } = getDateRange(days);
@@ -34,6 +38,7 @@ export type Opportunity = {
 export async function getStrikingDistance(siteId: string, limit = 25) {
   const keywords = await getTopKeywords(siteId, 28, 200);
   return keywords
+    .filter(hasKnownMetrics)
     .filter((k) => k.position >= 4 && k.position <= 20 && k.impressions >= 20)
     .sort((a, b) => b.impressions - a.impressions)
     .slice(0, limit)
@@ -50,6 +55,7 @@ export async function getStrikingDistance(siteId: string, limit = 25) {
 export async function getLowCtrOpportunities(siteId: string, limit = 25) {
   const keywords = await getTopKeywords(siteId, 28, 200);
   return keywords
+    .filter(hasKnownMetrics)
     .filter((k) => k.impressions >= 50 && k.position <= 15)
     .map((k) => {
       const exp = expectedCtr(k.position);
@@ -247,7 +253,7 @@ export async function exportKeywordsCsv(siteId: string): Promise<string> {
   const header = "query,position,clicks,impressions,ctr";
   const lines = rows.map(
     (r) =>
-      `"${r.query.replace(/"/g, '""')}",${r.position.toFixed(2)},${r.clicks},${r.impressions},${(r.ctr * 100).toFixed(3)}%`
+      `"${r.query.replace(/"/g, '""')}",${r.position === null ? "" : r.position.toFixed(2)},${r.clicks},${r.impressions},${r.ctr === null ? "" : `${(r.ctr * 100).toFixed(3)}%`}`
   );
   return [header, ...lines].join("\n");
 }
@@ -257,7 +263,7 @@ export async function exportPagesCsv(siteId: string): Promise<string> {
   const header = "url,position,clicks,impressions,ctr";
   const lines = rows.map(
     (r) =>
-      `"${r.url.replace(/"/g, '""')}",${r.position.toFixed(2)},${r.clicks},${r.impressions},${(r.ctr * 100).toFixed(3)}%`
+      `"${r.url.replace(/"/g, '""')}",${r.position === null ? "" : r.position.toFixed(2)},${r.clicks},${r.impressions},${r.ctr === null ? "" : `${(r.ctr * 100).toFixed(3)}%`}`
   );
   return [header, ...lines].join("\n");
 }
