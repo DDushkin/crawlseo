@@ -23,6 +23,7 @@ export type GscSyncTarget = {
 
 export type CreateGscRunInput = {
   siteId: string;
+  property: string;
   trigger: GscSyncTrigger;
   searchType: "web";
   requestedRange: GscDateRange;
@@ -31,6 +32,7 @@ export type CreateGscRunInput = {
 export type GscLeaseRenewal = { ownerId: string; expiresAt: Date };
 export type ReplaceGscReportInput = {
   siteId: string;
+  property: string;
   runId: string;
   searchType: "web";
   range: GscDateRange;
@@ -62,7 +64,7 @@ export interface GscStore {
   createRun(input: CreateGscRunInput): Promise<string>;
   replaceReport(input: ReplaceGscReportInput): Promise<number>;
   finishRun(input: FinishGscRunInput): Promise<void>;
-  markSiteReady(siteId: string, syncedAt: Date, lease: GscLeaseRenewal): Promise<void>;
+  markSiteReady(siteId: string, syncedAt: Date, lease: GscLeaseRenewal, property: string): Promise<void>;
 }
 
 function dimension(value: string | undefined): string {
@@ -128,7 +130,7 @@ export const prismaGscStore: GscStore = {
 
   async createRun(input) {
     const run = await db.gscSyncRun.create({ data: {
-      siteId: input.siteId, trigger: input.trigger, searchType: input.searchType,
+      siteId: input.siteId, property: input.property, trigger: input.trigger, searchType: input.searchType,
       requestedStart: toDbDate(input.requestedRange.startDate), requestedEnd: toDbDate(input.requestedRange.endDate),
       dataState: "final", startedAt: input.startedAt,
     }, select: { id: true } });
@@ -138,13 +140,13 @@ export const prismaGscStore: GscStore = {
   async replaceReport(input) {
     return db.$transaction(async (tx) => {
       if (input.complete) await fenceCanonicalWrite(tx, input.siteId, input.lease);
-      const run = await tx.gscSyncRun.findFirst({ where: { id: input.runId, siteId: input.siteId, searchType: input.searchType }, select: { reportCounts: true, reportStates: true } });
+      const run = await tx.gscSyncRun.findFirst({ where: { id: input.runId, siteId: input.siteId, property: input.property, searchType: input.searchType }, select: { reportCounts: true, reportStates: true } });
       if (!run) throw new GscSyncError("NOT_FOUND", "Sync run was not found for this site.");
       if (input.complete) {
-        const where = { siteId: input.siteId, searchType: input.searchType, date: { gte: toDbDate(input.range.startDate), lte: toDbDate(input.range.endDate) } };
+        const where = { siteId: input.siteId, property: input.property, searchType: input.searchType, date: { gte: toDbDate(input.range.startDate), lte: toDbDate(input.range.endDate) } };
         const rows = input.rows.map((row) => {
           if (row.date < input.range.startDate || row.date > input.range.endDate) throw new GscSyncError("PROVIDER_ERROR", "A report date is outside the requested range.");
-          return { siteId: input.siteId, searchType: input.searchType, syncRunId: input.runId, date: toDbDate(row.date), clicks: row.clicks, impressions: row.impressions, ctr: row.ctr, position: row.position };
+          return { siteId: input.siteId, property: input.property, searchType: input.searchType, syncRunId: input.runId, date: toDbDate(row.date), clicks: row.clicks, impressions: row.impressions, ctr: row.ctr, position: row.position };
         });
         // Keep each delegate concrete so generated Prisma types validate every table's dimensions.
         switch (input.kind) {
@@ -196,10 +198,10 @@ export const prismaGscStore: GscStore = {
     } });
   },
 
-  async markSiteReady(siteId, syncedAt, lease) {
+  async markSiteReady(siteId, syncedAt, lease, property) {
     await db.$transaction(async (tx) => {
       await fenceCanonicalWrite(tx, siteId, lease);
-      await tx.site.update({ where: { id: siteId }, data: { gscDataVersion: 2, lastGscSyncAt: syncedAt } });
+      await tx.site.update({ where: { id: siteId, gscProperty: property }, data: { gscDataVersion: 2, lastGscSyncAt: syncedAt } });
     });
   },
 };

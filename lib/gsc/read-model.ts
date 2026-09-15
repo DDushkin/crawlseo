@@ -24,7 +24,7 @@ export function storedRangeEnding(latestDate: string, days: number): GscDateRang
   return inclusiveRangeEnding(latestDate, days);
 }
 
-export type GscReadScope = { siteId: string; searchType: string };
+export type GscReadScope = { siteId: string; property: string; searchType: string };
 type Scope = { siteId: string; searchType: string; range: GscDateRange };
 type MetricRow = { siteId: string; searchType: string; date: Date; clicks: number; impressions: number; position: number };
 type QueryMetricRow = MetricRow & { query: string };
@@ -71,12 +71,16 @@ function dateFilter(range: GscDateRange) {
   return { gte: toDbDate(range.startDate), lte: toDbDate(range.endDate) };
 }
 
+function propertyScope(context: GscReadScope) {
+  return { siteId: context.siteId, property: context.property, searchType: context.searchType, syncRun: { property: context.property } };
+}
+
 function whereFor(context: GscReadScope, range: GscDateRange) {
-  return { siteId: context.siteId, searchType: context.searchType, date: dateFilter(range) };
+  return { ...propertyScope(context), date: dateFilter(range) };
 }
 
 export async function getV2StoredGscRange(scope: GscReadScope, days: number): Promise<GscDateRange | null> {
-  const latest = await db.gscDailyTotal.findFirst({ where: scope, orderBy: { date: "desc" }, select: { date: true } });
+  const latest = await db.gscDailyTotal.findFirst({ where: propertyScope(scope), orderBy: { date: "desc" }, select: { date: true } });
   // Canonical totals are replaced only after a complete, finalized report fetch.
   return latest ? storedRangeEnding(latest.date.toISOString().slice(0, 10), days) : null;
 }
@@ -137,10 +141,10 @@ export async function getV2GscQueryHistory(context: GscReadScope, query: string,
 }
 
 export async function getV2GscLatestQueryMetric(context: GscReadScope, query: string) {
-  const row = await db.gscQueryDaily.findFirst({ where: { ...context, query }, orderBy: { date: "desc" } });
+  const row = await db.gscQueryDaily.findFirst({ where: { ...propertyScope(context), query }, orderBy: { date: "desc" } });
   if (!row) return null;
   const leading = await db.gscQueryPageDaily.findFirst({
-    where: { ...context, query, date: row.date },
+    where: { ...propertyScope(context), query, date: row.date },
     orderBy: [{ clicks: "desc" }, { impressions: "desc" }, { url: "asc" }], select: { url: true },
   });
   return { date: row.date, query: row.query, page: leading?.url ?? null, ...aggregateGscMetrics([row]) };
@@ -158,6 +162,6 @@ export async function getV2GscQueryPageRows(context: GscReadScope, range: GscDat
 }
 
 export async function getV2GscStoredCounts(context: GscReadScope) {
-  const [queries, pages] = await Promise.all([db.gscQueryDaily.count({ where: context }), db.gscPageDaily.count({ where: context })]);
+  const [queries, pages] = await Promise.all([db.gscQueryDaily.count({ where: propertyScope(context) }), db.gscPageDaily.count({ where: propertyScope(context) })]);
   return { queries, pages };
 }

@@ -110,6 +110,8 @@ test("first sync requests 90 finalized dates and all six final web reports", asy
   assert.deepEqual(fixture.store.released, [{ siteId: "site-a", ownerId: "lease-owner-1" }]);
   assert.deepEqual(fixture.store.renewals, Array.from({ length: 4 }, () => ({ siteId: "site-a", ownerId: "lease-owner-1", expiresAt: new Date("2026-09-15T12:30:00.000Z") })));
   assert.deepEqual(fixture.store.ready, ["site-a"]);
+  assert.equal(fixture.store.runs[0].property, "sc-domain:example.com");
+  assert.ok(fixture.store.replacements.every((replacement) => replacement.property === "sc-domain:example.com"));
   assert.deepEqual(fixture.store.canonical.get("site-b:query"), ["other-site"]);
   assert.equal(fixture.store.finished[0].status, "COMPLETED");
 });
@@ -339,11 +341,11 @@ test("Prisma canonical replacement and readiness atomically fence and renew the 
   intercept(context, db.gscDailyTotal, "deleteMany", async () => { events.push("delete"); return { count: 1 }; });
   intercept(context, db.gscDailyTotal, "createMany", async () => { events.push("insert"); return { count: 1 }; });
   intercept(context, db.site, "update", async () => { events.push("ready"); return {}; });
-  const input = { ...report("dailyTotal"), siteId: "site-a", runId: "run-a", searchType: "web" as const, range: { startDate: "2026-09-06", endDate: "2026-09-12" }, rows: report("dailyTotal").rows.map((row) => ({ ...row, siteId: "site-a" })), lease };
+  const input = { ...report("dailyTotal"), siteId: "site-a", property: target.property, runId: "run-a", searchType: "web" as const, range: { startDate: "2026-09-06", endDate: "2026-09-12" }, rows: report("dailyTotal").rows.map((row) => ({ ...row, siteId: "site-a" })), lease };
   await prismaGscStore.replaceReport(input);
   assert.deepEqual(events, ["begin", "renew", "delete", "insert", "run", "commit"]);
   events.length = 0;
-  await prismaGscStore.markSiteReady("site-a", now, lease);
+  await prismaGscStore.markSiteReady("site-a", now, lease, target.property);
   assert.deepEqual(events, ["begin", "renew", "ready", "commit"]);
   for (const invalidLease of ["different-owner", "expired"]) {
     activeOwner = invalidLease === "different-owner" ? "new-owner" : "current-owner";
@@ -352,7 +354,7 @@ test("Prisma canonical replacement and readiness atomically fence and renew the 
     await assert.rejects(prismaGscStore.replaceReport(input), { code: "PROVIDER_ERROR" });
     assert.deepEqual(events, ["begin", "renew"]);
     events.length = 0;
-    await assert.rejects(prismaGscStore.markSiteReady("site-a", now, lease), { code: "PROVIDER_ERROR" });
+    await assert.rejects(prismaGscStore.markSiteReady("site-a", now, lease, target.property), { code: "PROVIDER_ERROR" });
     assert.deepEqual(events, ["begin", "renew"]);
   }
 });
@@ -369,7 +371,7 @@ test("Prisma replacement confines all six tables to the target scope and one tra
   });
   intercept(context, db.gscSyncRun, "findFirst", async (input: unknown) => {
     assert.equal(transactionActive, true);
-    assert.deepEqual(input, { where: { id: "run-a", siteId: "site-a", searchType: "web" }, select: { reportCounts: true, reportStates: true } });
+    assert.deepEqual(input, { where: { id: "run-a", siteId: "site-a", property: target.property, searchType: "web" }, select: { reportCounts: true, reportStates: true } });
     return { reportCounts: null, reportStates: null };
   });
   intercept(context, db.gscSyncRun, "update", async (input: unknown) => { updates.push(input); return {}; });
@@ -383,13 +385,13 @@ test("Prisma replacement confines all six tables to the target scope and one tra
     });
   }
   for (const kind of GSC_REPORT_KINDS) {
-    assert.equal(await prismaGscStore.replaceReport({ siteId: "site-a", runId: "run-a", searchType: "web", lease: { ownerId: "owner-a", expiresAt: now }, range: { startDate: "2026-09-06", endDate: "2026-09-12" }, ...report(kind), rows: report(kind).rows.map((row) => ({ ...row, siteId: "attacker-site" })) }), 1);
+    assert.equal(await prismaGscStore.replaceReport({ siteId: "site-a", property: target.property, runId: "run-a", searchType: "web", lease: { ownerId: "owner-a", expiresAt: now }, range: { startDate: "2026-09-06", endDate: "2026-09-12" }, ...report(kind), rows: report(kind).rows.map((row) => ({ ...row, siteId: "attacker-site" })) }), 1);
   }
   assert.equal(transactions, 6);
   assert.equal(deletes.length, 6);
   assert.equal(writes.length, 6);
   assert.equal(updates.length, 6);
-  for (const input of deletes) assert.deepEqual(input, { where: { siteId: "site-a", searchType: "web", date: { gte: new Date("2026-09-06T00:00:00.000Z"), lte: new Date("2026-09-12T00:00:00.000Z") } } });
+  for (const input of deletes) assert.deepEqual(input, { where: { siteId: "site-a", property: target.property, searchType: "web", date: { gte: new Date("2026-09-06T00:00:00.000Z"), lte: new Date("2026-09-12T00:00:00.000Z") } } });
   for (const write of writes) {
     assert.equal(write.data[0].siteId, "site-a");
     assert.equal(write.data[0].syncRunId, "run-a");
@@ -407,7 +409,7 @@ test("Prisma incomplete replacement writes only run count/state and preserves ca
     intercept(context, delegate, "deleteMany", async () => assert.fail("Incomplete reports must not delete canonical rows"));
     intercept(context, delegate, "createMany", async () => assert.fail("Incomplete reports must not insert canonical rows"));
   }
-  const count = await prismaGscStore.replaceReport({ ...report("query"), siteId: "site-a", runId: "run-a", searchType: "web", lease: { ownerId: "owner-a", expiresAt: now }, range: { startDate: "2026-09-06", endDate: "2026-09-12" }, rows: report("query").rows.map((row) => ({ ...row, siteId: "attacker-site" })), complete: false, truncatedAt: 250000 });
+  const count = await prismaGscStore.replaceReport({ ...report("query"), siteId: "site-a", property: target.property, runId: "run-a", searchType: "web", lease: { ownerId: "owner-a", expiresAt: now }, range: { startDate: "2026-09-06", endDate: "2026-09-12" }, rows: report("query").rows.map((row) => ({ ...row, siteId: "attacker-site" })), complete: false, truncatedAt: 250000 });
   assert.equal(count, 0);
   assert.deepEqual(updates, [{ where: { id: "run-a", siteId: "site-a" }, data: { reportCounts: { page: 3, query: 1 }, reportStates: { query: { complete: false, pagesFetched: 1, truncatedAt: 250000 } } } }]);
 });
@@ -440,6 +442,6 @@ test("Prisma ownership resolution rejects foreign sites and readiness updates on
   intercept(context, db.site, "update", async (input: unknown) => { updates.push(input); return {}; });
   await assert.rejects(prismaGscStore.resolveOwnedTarget("user-b", "site-a"), { code: "UNAUTHORIZED" });
   assert.deepEqual(await prismaGscStore.resolveOwnedTarget("user-a", "site-a"), target);
-  await prismaGscStore.markSiteReady("site-a", now, { ownerId: "owner-a", expiresAt: now });
-  assert.deepEqual(updates, [{ where: { id: "site-a" }, data: { gscDataVersion: 2, lastGscSyncAt: now } }]);
+  await prismaGscStore.markSiteReady("site-a", now, { ownerId: "owner-a", expiresAt: now }, target.property);
+  assert.deepEqual(updates, [{ where: { id: "site-a", gscProperty: target.property }, data: { gscDataVersion: 2, lastGscSyncAt: now } }]);
 });

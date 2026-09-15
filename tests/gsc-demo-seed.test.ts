@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createRequire } from "node:module";
 
-type SeedRow = { siteId: string; searchType: string; date: Date; clicks: number; impressions: number; ctr: number; position: number; query?: string; url?: string; device?: string; country?: string };
+type SeedRow = { siteId: string; property: string; syncRunId: string; searchType: string; date: Date; clicks: number; impressions: number; ctr: number; position: number; query?: string; url?: string; device?: string; country?: string };
 
 test("demo seed writes six coherent V2 grains, keeps legacy data and marks only its completed site ready", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-09-15T01:00:00.000Z") });
@@ -13,7 +13,7 @@ test("demo seed writes six coherent V2 grains, keeps legacy data and marks only 
   let finish!: () => void;
   const finished = new Promise<void>((resolve) => { finish = resolve; });
   const fake = Object.fromEntries([
-    "keyword", "page", "gscDailyTotal", "gscQueryDaily", "gscPageDaily", "gscQueryPageDaily", "gscDeviceDaily", "gscCountryDaily", "savedKeyword", "crawl", "auditPage", "crawlIssue", "auditLink", "vitalsReport", "alert",
+    "keyword", "page", "gscSyncRun", "gscDailyTotal", "gscQueryDaily", "gscPageDaily", "gscQueryPageDaily", "gscDeviceDaily", "gscCountryDaily", "savedKeyword", "crawl", "auditPage", "crawlIssue", "auditLink", "vitalsReport", "alert",
   ].map((name) => [name, {
     create: async ({ data }: { data: SeedRow }) => { writes.set(name, [...(writes.get(name) ?? []), data]); events.push(name); return { id: `${name}-id`, ...data }; },
     createMany: async ({ data }: { data: SeedRow[] }) => { writes.set(name, [...(writes.get(name) ?? []), ...data]); events.push(name); return { count: data.length }; },
@@ -37,6 +37,14 @@ test("demo seed writes six coherent V2 grains, keeps legacy data and marks only 
   await finished;
 
   const totals = writes.get("gscDailyTotal") ?? [];
+  assert.equal((markers[0] as { create: { gscLegacyProperty: string } }).create.gscLegacyProperty, "sc-domain:acme.com");
+  assert.equal(writes.get("gscSyncRun")?.[0].property, "sc-domain:acme.com");
+  for (const table of ["gscDailyTotal", "gscQueryDaily", "gscPageDaily", "gscQueryPageDaily", "gscDeviceDaily", "gscCountryDaily"]) {
+    for (const row of writes.get(table) ?? []) {
+      assert.equal(row.property, "sc-domain:acme.com");
+      assert.equal(row.syncRunId, "gscSyncRun-id");
+    }
+  }
   assert.equal(totals.length, 28);
   // At 01:00 UTC the Pacific calendar is still September 14: minus three days is September 11.
   const labels = totals.map((row) => row.date.toISOString().slice(0, 10)).sort();

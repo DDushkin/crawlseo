@@ -69,7 +69,7 @@ export function createGscSyncService(deps: GscSyncDependencies): {
         if (!acquired) return { ...result, status: "already-running" };
         const days = mode === "backfill" || target.dataVersion < 2 ? 90 : 7;
         const requestedRange = inclusiveRangeEnding(shiftDateLabel(pacificDateLabel(startedAt), -3), days);
-        result.runId = await deps.store.createRun({ siteId: target.siteId, searchType: target.searchType, trigger, requestedRange, startedAt });
+        result.runId = await deps.store.createRun({ siteId: target.siteId, property: target.property, searchType: target.searchType, trigger, requestedRange, startedAt });
         const coverage = await deps.probeCoverage(target, startedAt);
         effectiveRange = inclusiveRangeEnding(coverage.finalizedThrough, days);
         result.startDate = effectiveRange.startDate;
@@ -98,7 +98,7 @@ export function createGscSyncService(deps: GscSyncDependencies): {
         for (const kind of GSC_REPORT_KINDS) {
           const report = reports[kind]!;
           if (!report.complete) continue;
-          await deps.store.replaceReport({ siteId: target.siteId, runId: result.runId, searchType: target.searchType,
+          await deps.store.replaceReport({ siteId: target.siteId, property: target.property, runId: result.runId, searchType: target.searchType,
             range: effectiveRange, kind, complete: true, pagesFetched: report.pagesFetched, truncatedAt: report.truncatedAt,
             lease: leaseRenewal(),
             rows: report.rows.map((row) => ({ ...row, siteId: target.siteId })),
@@ -108,7 +108,7 @@ export function createGscSyncService(deps: GscSyncDependencies): {
         reconciliation = reconcileGscReports({ totals: metrics("dailyTotal"), query: metrics("query"), page: metrics("page"), device: metrics("device"), country: metrics("country"), reportStates });
         result.warnings = reconciliation.warnings;
         result.status = result.warnings.length ? "completed-with-warnings" : "completed";
-        if (GSC_REPORT_KINDS.every((kind) => reports[kind]!.complete)) await deps.store.markSiteReady(target.siteId, deps.now(), leaseRenewal());
+        if (GSC_REPORT_KINDS.every((kind) => reports[kind]!.complete)) await deps.store.markSiteReady(target.siteId, deps.now(), leaseRenewal(), target.property);
         await deps.store.finishRun({ siteId: target.siteId, runId: result.runId,
           status: result.status === "completed" ? "COMPLETED" : "COMPLETED_WITH_WARNINGS",
           effectiveRange, reportCounts: result.reportCounts, reportStates, reconciliation, finishedAt: deps.now(),

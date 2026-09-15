@@ -83,15 +83,15 @@ function siteVersion(context: TestContext, version: number, flag?: string) {
   else process.env.GSC_READ_MODEL_V2 = flag;
   context.after(() => { if (original === undefined) delete process.env.GSC_READ_MODEL_V2; else process.env.GSC_READ_MODEL_V2 = original; });
   intercept(context, db.site, "findUnique", async (input: unknown) => {
-    assert.deepEqual(input, { where: { id: "site-a" }, select: { gscDataVersion: true, gscSearchType: true } });
-    return { gscDataVersion: version, gscSearchType: "web" };
+    assert.deepEqual(input, { where: { id: "site-a" }, select: { gscDataVersion: true, gscSearchType: true, gscProperty: true, gscLegacyProperty: true } });
+    return { gscDataVersion: version, gscSearchType: "web", gscProperty: "sc-domain:example.com", gscLegacyProperty: "sc-domain:example.com" };
   });
 }
 
 test("facade selects canonical property totals with adjacent stored periods", async (context) => {
   siteVersion(context, 2);
   intercept(context, db.gscDailyTotal, "findFirst", async (input: unknown) => {
-    assert.deepEqual(input, { where: { siteId: "site-a", searchType: "web" }, orderBy: { date: "desc" }, select: { date: true } });
+    assert.deepEqual(input, { where: { siteId: "site-a", property: "sc-domain:example.com", searchType: "web", syncRun: { property: "sc-domain:example.com" } }, orderBy: { date: "desc" }, select: { date: true } });
     return { date: row.date };
   });
   const ranges: unknown[] = [];
@@ -151,7 +151,7 @@ test("query details use scoped ranges and same-day leading pages, saved rows use
   });
   intercept(context, db.gscQueryDaily, "findFirst", async () => ({ ...row, query: "shoe" }));
   intercept(context, db.gscQueryPageDaily, "findFirst", async (input: { where: unknown; orderBy: unknown }) => {
-    assert.deepEqual(input.where, { siteId: "site-a", searchType: "web", query: "shoe", date: row.date });
+    assert.deepEqual(input.where, { siteId: "site-a", property: "sc-domain:example.com", syncRun: { property: "sc-domain:example.com" }, searchType: "web", query: "shoe", date: row.date });
     assert.deepEqual(input.orderBy, [{ clicks: "desc" }, { impressions: "desc" }, { url: "asc" }]);
     return { url: "/leading" };
   });
@@ -205,7 +205,7 @@ test("opportunity rules skip unavailable metrics and CSV exports use empty cells
 
 test("V2 pages, daily traffic, counts and query-page reports use their own scoped canonical tables", async (context) => {
   siteVersion(context, 2);
-  const expectedWhere = { siteId: "site-a", searchType: "web", date: { gte: new Date("2026-09-11"), lte: new Date("2026-09-12") } };
+  const expectedWhere = { siteId: "site-a", property: "sc-domain:example.com", syncRun: { property: "sc-domain:example.com" }, searchType: "web", date: { gte: new Date("2026-09-11"), lte: new Date("2026-09-12") } };
   intercept(context, db.gscDailyTotal, "findFirst", async () => ({ date: row.date }));
   intercept(context, db.gscDailyTotal, "findMany", async (input: { where: unknown; orderBy: unknown }) => {
     assert.deepEqual(input.where, expectedWhere);
@@ -224,8 +224,8 @@ test("V2 pages, daily traffic, counts and query-page reports use their own scope
     assert.deepEqual(input.where, expectedWhere);
     return [{ ...row, query: "shoe", url: "/a", clicks: 10000 }];
   });
-  intercept(context, db.gscQueryDaily, "count", async (input: unknown) => { assert.deepEqual(input, { where: { siteId: "site-a", searchType: "web" } }); return 3; });
-  intercept(context, db.gscPageDaily, "count", async (input: unknown) => { assert.deepEqual(input, { where: { siteId: "site-a", searchType: "web" } }); return 4; });
+  intercept(context, db.gscQueryDaily, "count", async (input: unknown) => { assert.deepEqual(input, { where: { siteId: "site-a", property: "sc-domain:example.com", searchType: "web", syncRun: { property: "sc-domain:example.com" } } }); return 3; });
+  intercept(context, db.gscPageDaily, "count", async (input: unknown) => { assert.deepEqual(input, { where: { siteId: "site-a", property: "sc-domain:example.com", searchType: "web", syncRun: { property: "sc-domain:example.com" } } }); return 4; });
   assert.equal((await getTopKeywords("site-a", 2))[0].clicks, 500);
   assert.equal((await getTopPages("site-a", 2))[0].clicks, 999);
   assert.deepEqual(await getDailyTraffic("site-a", 2), [{ date: "2026-09-12", clicks: 10, impressions: 100 }]);
@@ -262,7 +262,7 @@ for (const useV2 of [true, false]) {
     siteVersion(context, 2, useV2 ? undefined : "false");
     const queries = useV2 ? db.gscQueryDaily : db.keyword;
     const pages = useV2 ? db.gscPageDaily : db.page;
-    const storedScope = useV2 ? { siteId: "site-a", searchType: "web" } : { siteId: "site-a" };
+    const storedScope = useV2 ? { siteId: "site-a", property: "sc-domain:example.com", searchType: "web", syncRun: { property: "sc-domain:example.com" } } : { siteId: "site-a" };
     const oldDate = new Date("2024-01-01");
     if (useV2) intercept(context, db.gscDailyTotal, "findFirst", async () => ({ date: row.date }));
     intercept(context, queries, "findFirst", async (input: { where: { query?: string } }) => {

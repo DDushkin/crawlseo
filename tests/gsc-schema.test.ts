@@ -26,8 +26,8 @@ test("GSC V2 schema has site-scoped aggregation keys and keeps legacy models", (
   assert.ok(
     queryPageDaily.uniqueFields.some(
       (fields) =>
-        fields.length === 5 &&
-        fields.every((field, index) => ["siteId", "searchType", "date", "query", "url"][index] === field)
+        fields.length === 6 &&
+        fields.every((field, index) => ["siteId", "property", "searchType", "date", "query", "url"][index] === field)
     ),
     "GscQueryPageDaily must use the site-scoped aggregation key"
   );

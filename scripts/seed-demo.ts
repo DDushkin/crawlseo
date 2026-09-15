@@ -206,6 +206,7 @@ async function seed() {
       userId: user.id,
       domain: DEMO_DOMAIN,
       gscProperty: DEMO_GSC,
+      gscLegacyProperty: DEMO_GSC,
     },
   });
   console.log(`Created site: ${site.domain} (${site.id})`);
@@ -270,9 +271,15 @@ async function seed() {
   // Independent property totals drive all V2 demo dimensions. Legacy fixtures
   // above remain available for demonstrating the emergency rollback path.
   const finalizedThrough = shiftDateLabel(pacificDateLabel(seedTime), -3);
+  const run = await db.gscSyncRun.create({ data: {
+    siteId: site.id, property: DEMO_GSC, searchType: "web", trigger: "CLI", status: "COMPLETED", dataState: "final",
+    requestedStart: toDbDate(shiftDateLabel(finalizedThrough, -27)), requestedEnd: toDbDate(finalizedThrough),
+    effectiveStart: toDbDate(shiftDateLabel(finalizedThrough, -27)), effectiveEnd: toDbDate(finalizedThrough),
+    startedAt: seedTime, finishedAt: seedTime,
+  } });
   for (let day = 0; day < 28; day++) {
     const date = toDbDate(shiftDateLabel(finalizedThrough, -day));
-    const scope = { siteId: site.id, searchType: "web", date };
+    const scope = { siteId: site.id, property: DEMO_GSC, syncRunId: run.id, searchType: "web", date };
     const clicks = rand(1000, 2000);
     const impressions = rand(18000, 30000);
     const position = randf(6, 12, 1);

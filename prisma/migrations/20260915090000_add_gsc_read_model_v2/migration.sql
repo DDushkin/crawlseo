@@ -1,7 +1,11 @@
 -- AlterTable
 ALTER TABLE "Site" ADD COLUMN "gscSearchType" TEXT NOT NULL DEFAULT 'web',
 ADD COLUMN "gscDataVersion" INTEGER NOT NULL DEFAULT 1,
-ADD COLUMN "lastGscSyncAt" TIMESTAMP(3);
+ADD COLUMN "lastGscSyncAt" TIMESTAMP(3),
+ADD COLUMN "gscLegacyProperty" TEXT;
+
+-- Preserve attribution for existing legacy data before properties can change.
+UPDATE "Site" SET "gscLegacyProperty" = "gscProperty";
 
 -- CreateEnum
 CREATE TYPE "GscSyncTrigger" AS ENUM ('INITIAL', 'MANUAL', 'SCHEDULED', 'CLI');
@@ -13,6 +17,7 @@ CREATE TYPE "GscSyncStatus" AS ENUM ('RUNNING', 'COMPLETED', 'COMPLETED_WITH_WAR
 CREATE TABLE "GscSyncRun" (
     "id" TEXT NOT NULL,
     "siteId" TEXT NOT NULL,
+    "property" TEXT NOT NULL,
     "trigger" "GscSyncTrigger" NOT NULL,
     "status" "GscSyncStatus" NOT NULL DEFAULT 'RUNNING',
     "searchType" TEXT NOT NULL DEFAULT 'web',
@@ -37,6 +42,7 @@ CREATE TABLE "GscSyncRun" (
 CREATE TABLE "GscDailyTotal" (
     "id" TEXT NOT NULL,
     "siteId" TEXT NOT NULL,
+    "property" TEXT NOT NULL,
     "date" DATE NOT NULL,
     "searchType" TEXT NOT NULL DEFAULT 'web',
     "clicks" INTEGER NOT NULL DEFAULT 0,
@@ -54,6 +60,7 @@ CREATE TABLE "GscDailyTotal" (
 CREATE TABLE "GscQueryDaily" (
     "id" TEXT NOT NULL,
     "siteId" TEXT NOT NULL,
+    "property" TEXT NOT NULL,
     "date" DATE NOT NULL,
     "searchType" TEXT NOT NULL DEFAULT 'web',
     "query" TEXT NOT NULL,
@@ -72,6 +79,7 @@ CREATE TABLE "GscQueryDaily" (
 CREATE TABLE "GscPageDaily" (
     "id" TEXT NOT NULL,
     "siteId" TEXT NOT NULL,
+    "property" TEXT NOT NULL,
     "date" DATE NOT NULL,
     "searchType" TEXT NOT NULL DEFAULT 'web',
     "url" TEXT NOT NULL,
@@ -90,6 +98,7 @@ CREATE TABLE "GscPageDaily" (
 CREATE TABLE "GscQueryPageDaily" (
     "id" TEXT NOT NULL,
     "siteId" TEXT NOT NULL,
+    "property" TEXT NOT NULL,
     "date" DATE NOT NULL,
     "searchType" TEXT NOT NULL DEFAULT 'web',
     "query" TEXT NOT NULL,
@@ -109,6 +118,7 @@ CREATE TABLE "GscQueryPageDaily" (
 CREATE TABLE "GscDeviceDaily" (
     "id" TEXT NOT NULL,
     "siteId" TEXT NOT NULL,
+    "property" TEXT NOT NULL,
     "date" DATE NOT NULL,
     "searchType" TEXT NOT NULL DEFAULT 'web',
     "device" TEXT NOT NULL,
@@ -127,6 +137,7 @@ CREATE TABLE "GscDeviceDaily" (
 CREATE TABLE "GscCountryDaily" (
     "id" TEXT NOT NULL,
     "siteId" TEXT NOT NULL,
+    "property" TEXT NOT NULL,
     "date" DATE NOT NULL,
     "searchType" TEXT NOT NULL DEFAULT 'web',
     "country" TEXT NOT NULL,
@@ -152,52 +163,52 @@ CREATE TABLE "GscSyncLease" (
 );
 
 -- CreateIndex
-CREATE INDEX "GscSyncRun_siteId_startedAt_idx" ON "GscSyncRun"("siteId", "startedAt");
+CREATE INDEX "GscSyncRun_siteId_property_startedAt_idx" ON "GscSyncRun"("siteId", "property", "startedAt");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "GscDailyTotal_siteId_searchType_date_key" ON "GscDailyTotal"("siteId", "searchType", "date");
+CREATE UNIQUE INDEX "GscDailyTotal_siteId_property_searchType_date_key" ON "GscDailyTotal"("siteId", "property", "searchType", "date");
 
 -- CreateIndex
-CREATE INDEX "GscDailyTotal_siteId_date_idx" ON "GscDailyTotal"("siteId", "date");
+CREATE INDEX "GscDailyTotal_siteId_property_date_idx" ON "GscDailyTotal"("siteId", "property", "date");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "GscQueryDaily_siteId_searchType_date_query_key" ON "GscQueryDaily"("siteId", "searchType", "date", "query");
+CREATE UNIQUE INDEX "GscQueryDaily_siteId_property_searchType_date_query_key" ON "GscQueryDaily"("siteId", "property", "searchType", "date", "query");
 
 -- CreateIndex
-CREATE INDEX "GscQueryDaily_siteId_date_idx" ON "GscQueryDaily"("siteId", "date");
+CREATE INDEX "GscQueryDaily_siteId_property_date_idx" ON "GscQueryDaily"("siteId", "property", "date");
 
 -- CreateIndex
-CREATE INDEX "GscQueryDaily_siteId_query_date_idx" ON "GscQueryDaily"("siteId", "query", "date");
+CREATE INDEX "GscQueryDaily_siteId_property_query_date_idx" ON "GscQueryDaily"("siteId", "property", "query", "date");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "GscPageDaily_siteId_searchType_date_url_key" ON "GscPageDaily"("siteId", "searchType", "date", "url");
+CREATE UNIQUE INDEX "GscPageDaily_siteId_property_searchType_date_url_key" ON "GscPageDaily"("siteId", "property", "searchType", "date", "url");
 
 -- CreateIndex
-CREATE INDEX "GscPageDaily_siteId_date_idx" ON "GscPageDaily"("siteId", "date");
+CREATE INDEX "GscPageDaily_siteId_property_date_idx" ON "GscPageDaily"("siteId", "property", "date");
 
 -- CreateIndex
-CREATE INDEX "GscPageDaily_siteId_url_date_idx" ON "GscPageDaily"("siteId", "url", "date");
+CREATE INDEX "GscPageDaily_siteId_property_url_date_idx" ON "GscPageDaily"("siteId", "property", "url", "date");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "GscQueryPageDaily_siteId_searchType_date_query_url_key" ON "GscQueryPageDaily"("siteId", "searchType", "date", "query", "url");
+CREATE UNIQUE INDEX "GscQueryPageDaily_siteId_property_searchType_date_query_url_key" ON "GscQueryPageDaily"("siteId", "property", "searchType", "date", "query", "url");
 
 -- CreateIndex
-CREATE INDEX "GscQueryPageDaily_siteId_query_date_idx" ON "GscQueryPageDaily"("siteId", "query", "date");
+CREATE INDEX "GscQueryPageDaily_siteId_property_query_date_idx" ON "GscQueryPageDaily"("siteId", "property", "query", "date");
 
 -- CreateIndex
-CREATE INDEX "GscQueryPageDaily_siteId_url_date_idx" ON "GscQueryPageDaily"("siteId", "url", "date");
+CREATE INDEX "GscQueryPageDaily_siteId_property_url_date_idx" ON "GscQueryPageDaily"("siteId", "property", "url", "date");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "GscDeviceDaily_siteId_searchType_date_device_key" ON "GscDeviceDaily"("siteId", "searchType", "date", "device");
+CREATE UNIQUE INDEX "GscDeviceDaily_siteId_property_searchType_date_device_key" ON "GscDeviceDaily"("siteId", "property", "searchType", "date", "device");
 
 -- CreateIndex
-CREATE INDEX "GscDeviceDaily_siteId_date_idx" ON "GscDeviceDaily"("siteId", "date");
+CREATE INDEX "GscDeviceDaily_siteId_property_date_idx" ON "GscDeviceDaily"("siteId", "property", "date");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "GscCountryDaily_siteId_searchType_date_country_key" ON "GscCountryDaily"("siteId", "searchType", "date", "country");
+CREATE UNIQUE INDEX "GscCountryDaily_siteId_property_searchType_date_country_key" ON "GscCountryDaily"("siteId", "property", "searchType", "date", "country");
 
 -- CreateIndex
-CREATE INDEX "GscCountryDaily_siteId_date_idx" ON "GscCountryDaily"("siteId", "date");
+CREATE INDEX "GscCountryDaily_siteId_property_date_idx" ON "GscCountryDaily"("siteId", "property", "date");
 
 -- AddForeignKey
 ALTER TABLE "GscSyncRun" ADD CONSTRAINT "GscSyncRun_siteId_fkey" FOREIGN KEY ("siteId") REFERENCES "Site"("id") ON DELETE CASCADE ON UPDATE CASCADE;

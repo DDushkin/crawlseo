@@ -41,8 +41,10 @@ function setup(t: TestContext) {
   const flag = process.env.GSC_READ_MODEL_V2;
   delete process.env.GSC_READ_MODEL_V2;
   t.after(() => { if (flag === undefined) delete process.env.GSC_READ_MODEL_V2; else process.env.GSC_READ_MODEL_V2 = flag; });
-  intercept(t, db.site, "findUnique", async () => ({ id: "site-a", userId: "owner", domain: "example.com", gscDataVersion: 2, gscSearchType: "web", _count: { keywords: 700, pages: 800, crawls: 3, vitals: 4 } }));
+  intercept(t, db.site, "findUnique", async () => ({ id: "site-a", userId: "owner", domain: "example.com", gscDataVersion: 2, gscSearchType: "web", gscProperty: "sc-domain:example.com", gscLegacyProperty: "sc-domain:example.com", _count: { keywords: 700, pages: 800, crawls: 3, vitals: 4 } }));
   intercept(t, db.gscDailyTotal, "findFirst", async () => ({ date }));
+  intercept(t, db.gscSyncRun, "findFirst", async () => null);
+  intercept(t, db.gscDailyTotal, "aggregate", async () => ({ _min: { date: null }, _max: { date: null } }));
   // Deliberately stale legacy fixtures expose consumers bypassing version selection.
   intercept(t, db.keyword, "findMany", async () => []);
   intercept(t, db.keyword, "findFirst", async () => null);
@@ -125,7 +127,7 @@ test("GSC overview uses property traffic and the canonical unique query count", 
 test("site detail and list preserve count field names while selecting V2 stored counts", async (t) => {
   setup(t);
   intercept(t, db.site, "findMany", async () => [{ id: "site-a", _count: { keywords: 700, crawls: 3 } }]);
-  intercept(t, db.gscQueryDaily, "count", async (input: unknown) => { assert.deepEqual(input, { where: { siteId: "site-a", searchType: "web" } }); return 12; });
+  intercept(t, db.gscQueryDaily, "count", async (input: unknown) => { assert.deepEqual(input, { where: { siteId: "site-a", property: "sc-domain:example.com", searchType: "web", syncRun: { property: "sc-domain:example.com" } } }); return 12; });
   intercept(t, db.gscPageDaily, "count", async () => 13);
   const detail = await (await siteRoute.GET(request, params)).json();
   assert.equal("userId" in detail, false);
@@ -161,7 +163,7 @@ test("saved keyword page uses weighted V2 query metrics and preserves unavailabl
 
 test("opportunities onboarding uses property readiness when legacy rows are absent", async (t) => {
   setup(t);
-  intercept(t, db.site, "findUnique", async () => ({ userId: "owner", domain: "example.com", gscDataVersion: 2, gscSearchType: "web", _count: { keywords: 0 } }));
+  intercept(t, db.site, "findUnique", async () => ({ userId: "owner", domain: "example.com", gscDataVersion: 2, gscSearchType: "web", gscProperty: "sc-domain:example.com", gscLegacyProperty: "sc-domain:example.com", _count: { keywords: 0 } }));
   intercept(t, db.gscQueryDaily, "findMany", async () => []);
   intercept(t, db.gscPageDaily, "findMany", async () => []);
   intercept(t, db.gscQueryPageDaily, "findMany", async () => []);

@@ -62,12 +62,13 @@ export async function getGscDataHealth(siteId: string): Promise<GscDataHealth> {
   const empty: GscHealthInput = { property: site?.gscProperty ?? null, searchType, startDate: null, endDate: null,
     lastSuccessfulRun: null, latestRun: null, leaseExpiresAt: site?.gscSyncLease?.expiresAt ?? null, now: new Date() };
   if (!site?.gscProperty) return projectGscDataHealth(empty);
-  const where = { siteId, searchType, dataState: "final" };
+  const property = site.gscProperty;
+  const where = { siteId, property, searchType, dataState: "final" };
   const select = { status: true, finishedAt: true, reportStates: true, reconciliation: true, errorCode: true, errorMessage: true } as const;
   const [latestRun, lastSuccessfulRun, dates] = await Promise.all([
     db.gscSyncRun.findFirst({ where, orderBy: { startedAt: "desc" }, select }),
     db.gscSyncRun.findFirst({ where: { ...where, status: { in: ["COMPLETED", "COMPLETED_WITH_WARNINGS"] } }, orderBy: { startedAt: "desc" }, select }),
-    db.gscDailyTotal.aggregate({ where: { siteId, searchType }, _min: { date: true }, _max: { date: true } }),
+    db.gscDailyTotal.aggregate({ where: { siteId, property, searchType, syncRun: { property } }, _min: { date: true }, _max: { date: true } }),
   ]);
   return projectGscDataHealth({ ...empty, latestRun, lastSuccessfulRun,
     startDate: dates._min.date?.toISOString().slice(0, 10) ?? null, endDate: dates._max.date?.toISOString().slice(0, 10) ?? null });

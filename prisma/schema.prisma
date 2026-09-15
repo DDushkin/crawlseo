@@ -85,6 +85,7 @@ model Site {
   userId         String
   domain         String   // e.g. "brandson.digital"
   gscProperty    String?  // e.g. "sc-domain:brandson.digital"
+  gscLegacyProperty String? // Property owning preserved legacy Keyword/Page rows
   gscSearchType  String    @default("web")
   gscDataVersion Int       @default(1)
   lastGscSyncAt  DateTime?
@@ -130,6 +131,7 @@ enum GscSyncStatus {
 model GscDailyTotal {
   id          String      @id @default(cuid())
   siteId      String
+  property    String
   date        DateTime    @db.Date
   searchType  String      @default("web")
   clicks      Int         @default(0)
@@ -142,13 +144,14 @@ model GscDailyTotal {
   site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
   syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
 
-  @@unique([siteId, searchType, date])
-  @@index([siteId, date])
+  @@unique([siteId, property, searchType, date])
+  @@index([siteId, property, date])
 }
 
 model GscQueryDaily {
   id          String      @id @default(cuid())
   siteId      String
+  property    String
   date        DateTime    @db.Date
   searchType  String      @default("web")
   query       String
@@ -162,14 +165,15 @@ model GscQueryDaily {
   site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
   syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
 
-  @@unique([siteId, searchType, date, query])
-  @@index([siteId, date])
-  @@index([siteId, query, date])
+  @@unique([siteId, property, searchType, date, query])
+  @@index([siteId, property, date])
+  @@index([siteId, property, query, date])
 }
 
 model GscPageDaily {
   id          String      @id @default(cuid())
   siteId      String
+  property    String
   date        DateTime    @db.Date
   searchType  String      @default("web")
   url         String
@@ -183,14 +187,15 @@ model GscPageDaily {
   site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
   syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
 
-  @@unique([siteId, searchType, date, url])
-  @@index([siteId, date])
-  @@index([siteId, url, date])
+  @@unique([siteId, property, searchType, date, url])
+  @@index([siteId, property, date])
+  @@index([siteId, property, url, date])
 }
 
 model GscQueryPageDaily {
   id          String      @id @default(cuid())
   siteId      String
+  property    String
   date        DateTime    @db.Date
   searchType  String      @default("web")
   query       String
@@ -205,14 +210,15 @@ model GscQueryPageDaily {
   site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
   syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
 
-  @@unique([siteId, searchType, date, query, url])
-  @@index([siteId, query, date])
-  @@index([siteId, url, date])
+  @@unique([siteId, property, searchType, date, query, url])
+  @@index([siteId, property, query, date])
+  @@index([siteId, property, url, date])
 }
 
 model GscDeviceDaily {
   id          String      @id @default(cuid())
   siteId      String
+  property    String
   date        DateTime    @db.Date
   searchType  String      @default("web")
   device      String
@@ -226,13 +232,14 @@ model GscDeviceDaily {
   site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
   syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
 
-  @@unique([siteId, searchType, date, device])
-  @@index([siteId, date])
+  @@unique([siteId, property, searchType, date, device])
+  @@index([siteId, property, date])
 }
 
 model GscCountryDaily {
   id          String      @id @default(cuid())
   siteId      String
+  property    String
   date        DateTime    @db.Date
   searchType  String      @default("web")
   country     String
@@ -246,13 +253,14 @@ model GscCountryDaily {
   site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
   syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
 
-  @@unique([siteId, searchType, date, country])
-  @@index([siteId, date])
+  @@unique([siteId, property, searchType, date, country])
+  @@index([siteId, property, date])
 }
 
 model GscSyncRun {
   id             String         @id @default(cuid())
   siteId         String
+  property    String
   trigger        GscSyncTrigger
   status         GscSyncStatus  @default(RUNNING)
   searchType     String         @default("web")
@@ -277,7 +285,7 @@ model GscSyncRun {
   deviceRows     GscDeviceDaily[]
   countryRows    GscCountryDaily[]
 
-  @@index([siteId, startedAt])
+  @@index([siteId, property, startedAt])
 }
 
 model GscSyncLease {

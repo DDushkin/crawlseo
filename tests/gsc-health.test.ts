@@ -75,13 +75,14 @@ test("health loader scopes selected fields, successful run, latest run and date 
   intercept(db.gscSyncRun, "findFirst", async (args: { where: Record<string, unknown>; select: Record<string, unknown> }) => {
     assert.equal(args.where.siteId, "site-a");
     assert.equal(args.where.searchType, "image");
+    assert.equal(args.where.property, "sc-domain:example.com");
     assert.equal(args.where.dataState, "final");
     assert.equal(args.select.reportCounts, undefined);
     if (args.where.status) assert.deepEqual(args.where.status, { in: ["COMPLETED", "COMPLETED_WITH_WARNINGS"] });
     return complete;
   });
   intercept(db.gscDailyTotal, "aggregate", async (args: unknown) => {
-    assert.deepEqual(args, { where: { siteId: "site-a", searchType: "image" }, _min: { date: true }, _max: { date: true } });
+    assert.deepEqual(args, { where: { siteId: "site-a", property: "sc-domain:example.com", searchType: "image", syncRun: { property: "sc-domain:example.com" } }, _min: { date: true }, _max: { date: true } });
     return { _min: { date: new Date("2026-08-14") }, _max: { date: new Date("2026-09-10") } };
   });
   const health = await healthModule.getGscDataHealth("site-a");

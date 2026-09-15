@@ -78,7 +78,7 @@ export async function PUT(
     // Verify ownership
     const site = await db.site.findUnique({
       where: { id: siteId },
-      select: { userId: true },
+      select: { userId: true, gscProperty: true },
     });
 
     if (!site || site.userId !== session.user.id) {
@@ -91,10 +91,11 @@ export async function PUT(
     };
 
     const updated = await db.site.update({
-      where: { id: siteId },
+      where: { id: siteId, gscProperty: site.gscProperty },
       data: {
         ...(domain && { domain }),
         ...(gscProperty && { gscProperty }),
+        ...(gscProperty && gscProperty !== site.gscProperty && { gscDataVersion: 1, lastGscSyncAt: null }),
       },
       select: {
         id: true,
