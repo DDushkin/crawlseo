@@ -3,14 +3,15 @@ import { pathToFileURL } from "node:url";
 import { db } from "../lib/db";
 import { aggregateGscMetrics } from "../lib/gsc/aggregate";
 import { toDbDate } from "../lib/gsc/date-range";
+import { getV2StoredGscRange } from "../lib/gsc/read-model";
 import type {
   AggregatedGscMetrics,
   GscDateRange,
   GscMetricRow,
   GscReportResult,
 } from "../lib/gsc/types";
-import { fetchGscReport } from "../lib/google/gsc-client";
-import { getStoredGscRange } from "../lib/seo-metrics";
+import { fetchGscReportReadOnly, GscApiError } from "../lib/google/gsc-client";
+import { ReauthRequiredError } from "../lib/google/google-auth";
 
 export type VerificationDifferences = {
   matches: boolean;
@@ -35,10 +36,11 @@ type StoredScope = {
   searchType: "web";
   range: GscDateRange;
 };
+type CanonicalScope = Omit<StoredScope, "range">;
 type VerificationDependencies = {
   findSite(siteId: string): Promise<VerificationSite | null>;
-  getStoredRange(siteId: string, days: number): Promise<GscDateRange | null>;
-  fetchReport(
+  getCanonicalRange(scope: CanonicalScope, days: number): Promise<GscDateRange | null>;
+  fetchReadOnlyReport(
     userId: string,
     property: string,
     range: GscDateRange,
@@ -48,6 +50,33 @@ type VerificationDependencies = {
   getStoredRows(scope: StoredScope): Promise<Array<Pick<GscMetricRow, "clicks" | "impressions" | "position">>>;
   writeLine(line: string): void;
 };
+type VerificationCliRuntime = {
+  disconnect(): Promise<void>;
+  writeError(message: string): void;
+};
+
+type VerificationErrorCode =
+  | "ARGUMENT"
+  | "NOT_FOUND"
+  | "NO_PROPERTY"
+  | "NO_CANONICAL_COVERAGE"
+  | "INCOMPLETE"
+  | "UNSUPPORTED_SEARCH_TYPE";
+
+const CONTROLLED_ERROR_MESSAGES: Record<Exclude<VerificationErrorCode, "ARGUMENT">, string> = {
+  NOT_FOUND: "The selected site was not found.",
+  NO_PROPERTY: "The selected site has no connected GSC property.",
+  NO_CANONICAL_COVERAGE: "No canonical finalized GSC coverage exists for the selected site.",
+  INCOMPLETE: "The provider daily-total report was incomplete.",
+  UNSUPPORTED_SEARCH_TYPE: "The selected site uses an unsupported GSC search type.",
+};
+
+class VerificationCliError extends Error {
+  constructor(public readonly code: VerificationErrorCode, message: string) {
+    super(message);
+    this.name = "VerificationCliError";
+  }
+}
 
 function floatingMetricMatches(
   source: number | null,
@@ -85,7 +114,9 @@ export function compareVerificationMetrics(
 
 function optionValue(args: string[], index: number, option: string): string {
   const value = args[index + 1];
-  if (!value || value.startsWith("--")) throw new Error(`${option} requires a value`);
+  if (!value || value.startsWith("--")) {
+    throw new VerificationCliError("ARGUMENT", `${option} requires a value`);
+  }
   return value;
 }
 
@@ -95,20 +126,24 @@ export function parseVerificationArgs(args: string[]): VerificationArgs {
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--site") {
-      if (siteId !== null) throw new Error("--site may only be provided once");
+      if (siteId !== null) throw new VerificationCliError("ARGUMENT", "--site may only be provided once");
       siteId = optionValue(args, index, "--site");
       index += 1;
     } else if (argument === "--days") {
       const value = optionValue(args, index, "--days");
-      if (!/^\d+$/.test(value)) throw new Error("--days must be an integer between 1 and 180");
+      if (!/^\d+$/.test(value)) {
+        throw new VerificationCliError("ARGUMENT", "--days must be an integer between 1 and 180");
+      }
       days = Number(value);
       index += 1;
     } else {
-      throw new Error(`Unknown argument: ${argument}`);
+      throw new VerificationCliError("ARGUMENT", `Unknown argument: ${argument}`);
     }
   }
-  if (!siteId) throw new Error("--site is required");
-  if (days < 1 || days > 180) throw new Error("--days must be between 1 and 180");
+  if (!siteId) throw new VerificationCliError("ARGUMENT", "--site is required");
+  if (days < 1 || days > 180) {
+    throw new VerificationCliError("ARGUMENT", "--days must be between 1 and 180");
+  }
   return { siteId, days };
 }
 
@@ -117,8 +152,8 @@ const defaultDependencies: VerificationDependencies = {
     where: { id: siteId },
     select: { id: true, userId: true, gscProperty: true, gscSearchType: true },
   }),
-  getStoredRange: getStoredGscRange,
-  fetchReport: fetchGscReport,
+  getCanonicalRange: getV2StoredGscRange,
+  fetchReadOnlyReport: fetchGscReportReadOnly,
   getStoredRows: ({ siteId, property, searchType, range }) => db.gscDailyTotal.findMany({
     where: {
       siteId,
@@ -132,32 +167,54 @@ const defaultDependencies: VerificationDependencies = {
   writeLine: (line) => console.log(line),
 };
 
+const defaultRuntime: VerificationCliRuntime = {
+  disconnect: () => db.$disconnect(),
+  writeError: (message) => console.error(message),
+};
+
 export async function runVerification(
   args: string[],
   dependencies: VerificationDependencies = defaultDependencies
 ): Promise<number> {
   const { siteId, days } = parseVerificationArgs(args);
   const site = await dependencies.findSite(siteId);
-  if (!site) throw new Error(`Site not found: ${siteId}`);
-  if (!site.gscProperty) throw new Error(`Site has no connected GSC property: ${siteId}`);
-  if (site.gscSearchType !== "web") throw new Error(`Unsupported GSC search type: ${site.gscSearchType}`);
+  if (!site) throw new VerificationCliError("NOT_FOUND", CONTROLLED_ERROR_MESSAGES.NOT_FOUND);
+  if (!site.gscProperty) {
+    throw new VerificationCliError("NO_PROPERTY", CONTROLLED_ERROR_MESSAGES.NO_PROPERTY);
+  }
+  if (site.gscSearchType !== "web") {
+    throw new VerificationCliError(
+      "UNSUPPORTED_SEARCH_TYPE",
+      CONTROLLED_ERROR_MESSAGES.UNSUPPORTED_SEARCH_TYPE
+    );
+  }
 
-  const range = await dependencies.getStoredRange(site.id, days);
-  if (!range) throw new Error(`No finalized stored GSC coverage exists for site: ${site.id}`);
-  const scope: StoredScope = {
+  const canonicalScope: CanonicalScope = {
     siteId: site.id,
     property: site.gscProperty,
     searchType: "web",
+  };
+  const range = await dependencies.getCanonicalRange(canonicalScope, days);
+  if (!range) {
+    throw new VerificationCliError(
+      "NO_CANONICAL_COVERAGE",
+      CONTROLLED_ERROR_MESSAGES.NO_CANONICAL_COVERAGE
+    );
+  }
+  const scope: StoredScope = {
+    ...canonicalScope,
     range,
   };
   const [sourceReport, storedRows] = await Promise.all([
-    dependencies.fetchReport(site.userId, scope.property, range, "dailyTotal", {
+    dependencies.fetchReadOnlyReport(site.userId, scope.property, range, "dailyTotal", {
       type: scope.searchType,
       dataState: "final",
     }),
     dependencies.getStoredRows(scope),
   ]);
-  if (!sourceReport.complete) throw new Error("Provider dailyTotal report was incomplete");
+  if (!sourceReport.complete) {
+    throw new VerificationCliError("INCOMPLETE", CONTROLLED_ERROR_MESSAGES.INCOMPLETE);
+  }
 
   const sourceMetrics = aggregateGscMetrics(sourceReport.rows);
   const storedMetrics = aggregateGscMetrics(storedRows);
@@ -180,15 +237,39 @@ export async function runVerification(
   return comparison.matches ? 0 : 1;
 }
 
-export async function main(args = process.argv.slice(2)): Promise<void> {
-  try {
-    process.exitCode = await runVerification(args);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : "GSC verification failed");
-    process.exitCode = 1;
-  } finally {
-    await db.$disconnect();
+function controlledErrorMessage(error: unknown): string {
+  if (error instanceof VerificationCliError) {
+    return error.code === "ARGUMENT" ? error.message : CONTROLLED_ERROR_MESSAGES[error.code];
   }
+  if (error instanceof ReauthRequiredError) {
+    return "Google authorization has expired. Reconnect the account and retry.";
+  }
+  if (error instanceof GscApiError) return "Google Search Console verification failed.";
+  return "GSC verification failed.";
+}
+
+export async function runVerificationCli(
+  args: string[],
+  dependencies: VerificationDependencies = defaultDependencies,
+  runtime: VerificationCliRuntime = defaultRuntime
+): Promise<number> {
+  let exitCode = 1;
+  try {
+    exitCode = await runVerification(args, dependencies);
+  } catch (error) {
+    runtime.writeError(controlledErrorMessage(error));
+  }
+  try {
+    await runtime.disconnect();
+  } catch {
+    runtime.writeError("Failed to close the database connection.");
+    exitCode = 1;
+  }
+  return exitCode;
+}
+
+export async function main(args = process.argv.slice(2)): Promise<void> {
+  process.exitCode = await runVerificationCli(args);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

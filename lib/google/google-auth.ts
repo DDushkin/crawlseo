@@ -61,10 +61,7 @@ async function refreshAccessToken(
   };
 }
 
-/**
- * Gets a valid access token for a user, refreshing if necessary
- */
-export async function getAccessToken(userId: string): Promise<string> {
+async function getValidAccessToken(userId: string, persistRefresh: boolean): Promise<string> {
   const user = await db.user.findUnique({
     where: { id: userId },
     select: { googleTokens: true },
@@ -85,19 +82,31 @@ export async function getAccessToken(userId: string): Promise<string> {
       tokens.refreshToken
     );
 
-    await db.user.update({
-      where: { id: userId },
-      data: {
-        googleTokens: {
-          ...tokens,
-          accessToken,
-          expiresAt,
+    if (persistRefresh) {
+      await db.user.update({
+        where: { id: userId },
+        data: {
+          googleTokens: {
+            ...tokens,
+            accessToken,
+            expiresAt,
+          },
         },
-      },
-    });
+      });
+    }
 
     return accessToken;
   }
 
   return tokens.accessToken;
+}
+
+/** Gets a valid access token and persists refreshed credentials. */
+export function getAccessToken(userId: string): Promise<string> {
+  return getValidAccessToken(userId, true);
+}
+
+/** Gets a valid access token without performing any database write. */
+export function getReadOnlyAccessToken(userId: string): Promise<string> {
+  return getValidAccessToken(userId, false);
 }

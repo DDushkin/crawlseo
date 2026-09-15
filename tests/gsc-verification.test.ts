@@ -5,6 +5,7 @@ import {
   compareVerificationMetrics,
   parseVerificationArgs,
   runVerification,
+  runVerificationCli,
 } from "../scripts/verify-gsc";
 import { parseBackfillArgs, runBackfill } from "../scripts/backfill-gsc";
 
@@ -76,9 +77,15 @@ test("requires one site and a day count from 1 through 180", () => {
   assert.throws(() => parseVerificationArgs(["--site", "site-a", "--days", "28", "--user", "owner"]), /Unknown argument/);
 });
 
-test("verifies provider and stored totals for the current property over the stored range", async () => {
+test("verifies provider and stored totals for the current property over the stored range", async (t) => {
   const lines: string[] = [];
   const range = { startDate: "2026-08-16", endDate: "2026-09-12" };
+  const previousFlag = process.env.GSC_READ_MODEL_V2;
+  process.env.GSC_READ_MODEL_V2 = "false";
+  t.after(() => {
+    if (previousFlag === undefined) delete process.env.GSC_READ_MODEL_V2;
+    else process.env.GSC_READ_MODEL_V2 = previousFlag;
+  });
   const exitCode = await runVerification(["--site", "site-a", "--days", "28"], {
     findSite: async (siteId) => {
       assert.equal(siteId, "site-a");
@@ -89,11 +96,15 @@ test("verifies provider and stored totals for the current property over the stor
         gscSearchType: "web",
       };
     },
-    getStoredRange: async (siteId, days) => {
-      assert.deepEqual([siteId, days], ["site-a", 28]);
+    getCanonicalRange: async (scope, days) => {
+      assert.deepEqual([scope, days], [{
+        siteId: "site-a",
+        property: "sc-domain:current.example",
+        searchType: "web",
+      }, 28]);
       return range;
     },
-    fetchReport: async (userId, property, requestedRange, kind, options) => {
+    fetchReadOnlyReport: async (userId, property, requestedRange, kind, options) => {
       assert.deepEqual(
         { userId, property, requestedRange, kind, options },
         {
@@ -146,6 +157,67 @@ test("verifies provider and stored totals for the current property over the stor
     },
     matches: true,
   });
+});
+
+function cliDependencies(providerError?: Error) {
+  const range = { startDate: "2026-09-12", endDate: "2026-09-12" };
+  return {
+    findSite: async () => ({
+      id: "site-a",
+      userId: "owner-a",
+      gscProperty: "sc-domain:current.example",
+      gscSearchType: "web",
+    }),
+    getCanonicalRange: async () => range,
+    fetchReadOnlyReport: async () => {
+      if (providerError) throw providerError;
+      return {
+        kind: "dailyTotal" as const,
+        complete: true,
+        pagesFetched: 1,
+        truncatedAt: null,
+        rows: [{ date: "2026-09-12", clicks: 1, impressions: 2, ctr: 0.5, position: 3 }],
+      };
+    },
+    getStoredRows: async () => [{ clicks: 1, impressions: 2, position: 3 }],
+    writeLine: () => {},
+  };
+}
+
+test("verification CLI never prints a raw provider or OAuth response", async () => {
+  const errors: string[] = [];
+  const exitCode = await runVerificationCli(
+    ["--site", "site-a"],
+    cliDependencies(new Error("invalid_grant raw-provider-body secret-token")),
+    {
+      disconnect: async () => {},
+      writeError: (message) => errors.push(message),
+    }
+  );
+
+  assert.equal(exitCode, 1);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0], "GSC verification failed.");
+  assert.equal(errors.join(" ").includes("raw-provider-body"), false);
+  assert.equal(errors.join(" ").includes("secret-token"), false);
+});
+
+test("verification CLI handles disconnect rejection as a controlled failure", async () => {
+  const errors: string[] = [];
+  const exitCode = await runVerificationCli(
+    ["--site", "site-a"],
+    cliDependencies(),
+    {
+      disconnect: async () => {
+        throw new Error("raw disconnect diagnostic");
+      },
+      writeError: (message) => errors.push(message),
+    }
+  );
+
+  assert.equal(exitCode, 1);
+  assert.deepEqual(errors, ["Failed to close the database connection."]);
+  assert.equal(errors.join(" ").includes("raw disconnect diagnostic"), false);
 });
 
 test("backfill accepts exactly one stored-site selector", () => {

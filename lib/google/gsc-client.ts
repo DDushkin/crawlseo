@@ -8,7 +8,7 @@ import type {
 } from "@/lib/gsc/types";
 import { inclusiveRangeEnding, pacificDateLabel, shiftDateLabel } from "@/lib/gsc/date-range";
 
-import { getAccessToken } from "./google-auth";
+import { getAccessToken, getReadOnlyAccessToken } from "./google-auth";
 
 const GSC_API_BASE = "https://www.googleapis.com/webmasters/v3";
 const DEFAULT_ROW_LIMIT = 25_000;
@@ -83,6 +83,13 @@ export type GscCoverage = {
 export type ProbeFinalizedCoverageOptions = {
   now?: Date;
   type?: GscSearchType;
+};
+
+type FetchGscReportOptions = {
+  type?: GscSearchType;
+  dataState?: GscDataState;
+  rowLimit?: number;
+  maxRows?: number;
 };
 
 export class GscApiError extends Error {
@@ -194,14 +201,31 @@ export async function fetchGscReport(
   siteUrl: string,
   range: GscDateRange,
   kind: GscReportKind,
-  options: {
-    type?: GscSearchType;
-    dataState?: GscDataState;
-    rowLimit?: number;
-    maxRows?: number;
-  } = {}
+  options: FetchGscReportOptions = {}
 ): Promise<GscReportResult> {
   const accessToken = await getAccessToken(userId);
+  return fetchGscReportWithToken(accessToken, siteUrl, range, kind, options);
+}
+
+/** Fetches a report without persisting an OAuth token refresh. */
+export async function fetchGscReportReadOnly(
+  userId: string,
+  siteUrl: string,
+  range: GscDateRange,
+  kind: GscReportKind,
+  options: FetchGscReportOptions = {}
+): Promise<GscReportResult> {
+  const accessToken = await getReadOnlyAccessToken(userId);
+  return fetchGscReportWithToken(accessToken, siteUrl, range, kind, options);
+}
+
+function fetchGscReportWithToken(
+  accessToken: string,
+  siteUrl: string,
+  range: GscDateRange,
+  kind: GscReportKind,
+  options: FetchGscReportOptions
+): Promise<GscReportResult> {
   const rowLimit = options.rowLimit ?? DEFAULT_ROW_LIMIT;
   return paginateGscReport(
     { kind, rowLimit, maxRows: options.maxRows },
