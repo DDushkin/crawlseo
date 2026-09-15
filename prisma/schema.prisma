@@ -81,26 +81,212 @@ model ApiKey {
 // ============ SITES ============
 
 model Site {
-  id          String   @id @default(cuid())
-  userId      String
-  domain      String   // e.g. "brandson.digital"
-  gscProperty String?  // e.g. "sc-domain:brandson.digital"
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String    @id @default(cuid())
+  userId         String
+  domain         String   // e.g. "brandson.digital"
+  gscProperty    String?  // e.g. "sc-domain:brandson.digital"
+  gscSearchType  String    @default("web")
+  gscDataVersion Int       @default(1)
+  lastGscSyncAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  keywords      Keyword[]
-  pages         Page[]
-  crawls        Crawl[]
-  vitals        VitalsReport[]
-  alerts        Alert[]
-  savedKeywords SavedKeyword[]
-  rankSnapshots RankSnapshot[]
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keywords          Keyword[]
+  pages             Page[]
+  crawls            Crawl[]
+  vitals            VitalsReport[]
+  alerts            Alert[]
+  savedKeywords     SavedKeyword[]
+  rankSnapshots     RankSnapshot[]
+  gscDailyTotals    GscDailyTotal[]
+  gscQueryDaily     GscQueryDaily[]
+  gscPageDaily      GscPageDaily[]
+  gscQueryPageDaily GscQueryPageDaily[]
+  gscDeviceDaily    GscDeviceDaily[]
+  gscCountryDaily   GscCountryDaily[]
+  gscSyncRuns       GscSyncRun[]
+  gscSyncLease      GscSyncLease?
 
   @@unique([userId, domain])
 }
 
 // ============ GSC DATA ============
+
+enum GscSyncTrigger {
+  INITIAL
+  MANUAL
+  SCHEDULED
+  CLI
+}
+
+enum GscSyncStatus {
+  RUNNING
+  COMPLETED
+  COMPLETED_WITH_WARNINGS
+  FAILED
+}
+
+model GscDailyTotal {
+  id          String      @id @default(cuid())
+  siteId      String
+  date        DateTime    @db.Date
+  searchType  String      @default("web")
+  clicks      Int         @default(0)
+  impressions Int         @default(0)
+  ctr         Float
+  position    Float
+  syncRunId   String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
+
+  @@unique([siteId, searchType, date])
+  @@index([siteId, date])
+}
+
+model GscQueryDaily {
+  id          String      @id @default(cuid())
+  siteId      String
+  date        DateTime    @db.Date
+  searchType  String      @default("web")
+  query       String
+  clicks      Int         @default(0)
+  impressions Int         @default(0)
+  ctr         Float
+  position    Float
+  syncRunId   String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
+
+  @@unique([siteId, searchType, date, query])
+  @@index([siteId, date])
+  @@index([siteId, query, date])
+}
+
+model GscPageDaily {
+  id          String      @id @default(cuid())
+  siteId      String
+  date        DateTime    @db.Date
+  searchType  String      @default("web")
+  url         String
+  clicks      Int         @default(0)
+  impressions Int         @default(0)
+  ctr         Float
+  position    Float
+  syncRunId   String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
+
+  @@unique([siteId, searchType, date, url])
+  @@index([siteId, date])
+  @@index([siteId, url, date])
+}
+
+model GscQueryPageDaily {
+  id          String      @id @default(cuid())
+  siteId      String
+  date        DateTime    @db.Date
+  searchType  String      @default("web")
+  query       String
+  url         String
+  clicks      Int         @default(0)
+  impressions Int         @default(0)
+  ctr         Float
+  position    Float
+  syncRunId   String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
+
+  @@unique([siteId, searchType, date, query, url])
+  @@index([siteId, query, date])
+  @@index([siteId, url, date])
+}
+
+model GscDeviceDaily {
+  id          String      @id @default(cuid())
+  siteId      String
+  date        DateTime    @db.Date
+  searchType  String      @default("web")
+  device      String
+  clicks      Int         @default(0)
+  impressions Int         @default(0)
+  ctr         Float
+  position    Float
+  syncRunId   String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
+
+  @@unique([siteId, searchType, date, device])
+  @@index([siteId, date])
+}
+
+model GscCountryDaily {
+  id          String      @id @default(cuid())
+  siteId      String
+  date        DateTime    @db.Date
+  searchType  String      @default("web")
+  country     String
+  clicks      Int         @default(0)
+  impressions Int         @default(0)
+  ctr         Float
+  position    Float
+  syncRunId   String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  syncRun     GscSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: SetNull)
+
+  @@unique([siteId, searchType, date, country])
+  @@index([siteId, date])
+}
+
+model GscSyncRun {
+  id             String         @id @default(cuid())
+  siteId         String
+  trigger        GscSyncTrigger
+  status         GscSyncStatus  @default(RUNNING)
+  searchType     String         @default("web")
+  requestedStart DateTime       @db.Date
+  requestedEnd   DateTime       @db.Date
+  effectiveStart DateTime?      @db.Date
+  effectiveEnd   DateTime?      @db.Date
+  dataState      String         @default("final")
+  reportCounts   Json?
+  reportStates   Json?
+  reconciliation Json?
+  errorCode      String?
+  errorMessage   String?
+  startedAt      DateTime       @default(now())
+  finishedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  site           Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  dailyTotals    GscDailyTotal[]
+  queryRows      GscQueryDaily[]
+  pageRows       GscPageDaily[]
+  queryPageRows  GscQueryPageDaily[]
+  deviceRows     GscDeviceDaily[]
+  countryRows    GscCountryDaily[]
+
+  @@index([siteId, startedAt])
+}
+
+model GscSyncLease {
+  siteId    String   @id
+  ownerId   String
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+}
 
 model Keyword {
   id          String   @id @default(cuid())
