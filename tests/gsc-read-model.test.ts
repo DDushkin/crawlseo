@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { TestContext } from "node:test";
 import { db } from "../lib/db";
-import * as readers from "../lib/gsc/read-model";
+import * as readers from "../lib/seo-metrics";
+import * as facade from "../lib/seo-metrics";
 import { formatCtr, formatPosition, getSitePeriodMetrics, getTopKeywords, getTopPages, getDailyTraffic } from "../lib/seo-metrics";
 import { exportKeywordsCsv, exportPagesCsv, getLowCtrOpportunities, getStrikingDistance } from "../lib/seo-opportunities";
 import { formatSiteOverview } from "../mcp/formatters";
@@ -140,6 +141,7 @@ test("no canonical property totals means no usable data or stored range", async 
 
 test("query details use scoped ranges and same-day leading pages, saved rows use one batch", async (context) => {
   siteVersion(context, 2);
+  intercept(context, db.gscDailyTotal, "findFirst", async () => ({ date: row.date }));
   let queryCalls = 0;
   intercept(context, db.gscQueryDaily, "findMany", async (input: { where: { siteId: string; searchType: string; date: unknown; query: unknown } }) => {
     queryCalls += 1;
@@ -153,9 +155,9 @@ test("query details use scoped ranges and same-day leading pages, saved rows use
     assert.deepEqual(input.orderBy, [{ clicks: "desc" }, { impressions: "desc" }, { url: "asc" }]);
     return { url: "/leading" };
   });
-  assert.equal((await readers.getGscQueryHistory("site-a", "shoe", scope.range))[0].position, 2);
-  assert.equal((await readers.getGscLatestQueryMetric("site-a", "shoe", scope.range))?.page, "/leading");
-  const saved = await readers.getGscSavedQueryMetrics("site-a", ["shoe", "missing"], scope.range);
+  assert.equal((await readers.getGscQueryHistory("site-a", "shoe", 2))[0].position, 2);
+  assert.equal((await readers.getGscLatestQueryMetric("site-a", "shoe"))?.page, "/leading");
+  const saved = await readers.getGscSavedQueryMetrics("site-a", ["shoe", "missing"], 2);
   assert.equal(saved.get("shoe")?.clicks, 10);
   assert.equal(saved.has("missing"), false);
   assert.equal(queryCalls, 2);
@@ -222,14 +224,14 @@ test("V2 pages, daily traffic, counts and query-page reports use their own scope
     assert.deepEqual(input.where, expectedWhere);
     return [{ ...row, query: "shoe", url: "/a", clicks: 10000 }];
   });
-  intercept(context, db.gscQueryDaily, "count", async (input: unknown) => { assert.deepEqual(input, { where: expectedWhere }); return 3; });
-  intercept(context, db.gscPageDaily, "count", async (input: unknown) => { assert.deepEqual(input, { where: expectedWhere }); return 4; });
+  intercept(context, db.gscQueryDaily, "count", async (input: unknown) => { assert.deepEqual(input, { where: { siteId: "site-a", searchType: "web" } }); return 3; });
+  intercept(context, db.gscPageDaily, "count", async (input: unknown) => { assert.deepEqual(input, { where: { siteId: "site-a", searchType: "web" } }); return 4; });
   assert.equal((await getTopKeywords("site-a", 2))[0].clicks, 500);
   assert.equal((await getTopPages("site-a", 2))[0].clicks, 999);
   assert.deepEqual(await getDailyTraffic("site-a", 2), [{ date: "2026-09-12", clicks: 10, impressions: 100 }]);
   assert.equal((await readers.getGscPageMetricsForRange("site-a", scope.range))[0].url, "/a");
   assert.equal((await readers.getGscQueryPageRows("site-a", scope.range))[0].clicks, 10000);
-  assert.deepEqual(await readers.getGscStoredCounts("site-a", scope.range), { queries: 3, pages: 4 });
+  assert.deepEqual(await readers.getGscStoredCounts("site-a"), { queries: 3, pages: 4 });
 });
 
 test("global rollback also selects legacy history, saved metrics, counts, and query-page rows", async (context) => {
@@ -244,13 +246,46 @@ test("global rollback also selects legacy history, saved metrics, counts, and qu
     assert.deepEqual(input.where.date, expectedWhere.date);
     return [{ ...row, query: "shoe", page: "/legacy" }];
   });
-  intercept(context, db.keyword, "count", async (input: unknown) => { assert.deepEqual(input, { where: expectedWhere }); return 8; });
-  intercept(context, db.page, "count", async (input: unknown) => { assert.deepEqual(input, { where: expectedWhere }); return 9; });
+  intercept(context, db.keyword, "count", async (input: unknown) => { assert.deepEqual(input, { where: { siteId: "site-a" } }); return 8; });
+  intercept(context, db.page, "count", async (input: unknown) => { assert.deepEqual(input, { where: { siteId: "site-a" } }); return 9; });
   assert.equal(await readers.hasGscData("site-a"), true);
   assert.deepEqual(await readers.getStoredGscRange("site-a", 2), scope.range);
-  assert.equal((await readers.getGscQueryHistory("site-a", "shoe", scope.range))[0].clicks, 10);
-  assert.equal((await readers.getGscLatestQueryMetric("site-a", "shoe", scope.range))?.page, "/legacy");
-  assert.equal((await readers.getGscSavedQueryMetrics("site-a", ["shoe"], scope.range)).get("shoe")?.clicks, 10);
+  assert.equal((await readers.getGscQueryHistory("site-a", "shoe", 2))[0].clicks, 10);
+  assert.equal((await readers.getGscLatestQueryMetric("site-a", "shoe"))?.page, "/legacy");
+  assert.equal((await readers.getGscSavedQueryMetrics("site-a", ["shoe"], 2)).get("shoe")?.clicks, 10);
   assert.equal((await readers.getGscQueryPageRows("site-a", scope.range))[0].url, "/legacy");
-  assert.deepEqual(await readers.getGscStoredCounts("site-a", scope.range), { queries: 8, pages: 9 });
+  assert.deepEqual(await readers.getGscStoredCounts("site-a"), { queries: 8, pages: 9 });
 });
+
+for (const useV2 of [true, false]) {
+  test(`public facade accepts day counts and all-stored lookup contracts (${useV2 ? "V2" : "legacy"})`, async (context) => {
+    siteVersion(context, 2, useV2 ? undefined : "false");
+    const queries = useV2 ? db.gscQueryDaily : db.keyword;
+    const pages = useV2 ? db.gscPageDaily : db.page;
+    const storedScope = useV2 ? { siteId: "site-a", searchType: "web" } : { siteId: "site-a" };
+    const oldDate = new Date("2024-01-01");
+    if (useV2) intercept(context, db.gscDailyTotal, "findFirst", async () => ({ date: row.date }));
+    intercept(context, queries, "findFirst", async (input: { where: { query?: string } }) => {
+      if (!input.where.query) return { date: row.date };
+      assert.deepEqual(input.where, { ...storedScope, query: "old" });
+      return { ...row, date: oldDate, query: "old", page: "/old" };
+    });
+    intercept(context, queries, "findMany", async (input: { where: { date: unknown } }) => {
+      assert.deepEqual(input.where.date, {
+        gte: new Date("2026-08-16"),
+        lte: new Date(useV2 ? "2026-09-12" : "2026-09-12T23:59:59.999Z"),
+      });
+      return [{ ...row, query: "shoe" }];
+    });
+    if (useV2) intercept(context, db.gscQueryPageDaily, "findFirst", async (input: { where: { date: Date } }) => {
+      assert.deepEqual(input.where.date, oldDate);
+      return { url: "/old" };
+    });
+    intercept(context, queries, "count", async (input: unknown) => { assert.deepEqual(input, { where: storedScope }); return 30; });
+    intercept(context, pages, "count", async (input: unknown) => { assert.deepEqual(input, { where: storedScope }); return 40; });
+    assert.equal((await facade.getGscQueryHistory("site-a", "shoe", 28))[0].clicks, 10);
+    assert.equal((await facade.getGscSavedQueryMetrics("site-a", ["shoe"], 28)).get("shoe")?.clicks, 10);
+    assert.deepEqual((await facade.getGscLatestQueryMetric("site-a", "old"))?.date, oldDate);
+    assert.deepEqual(await facade.getGscStoredCounts("site-a"), { queries: 30, pages: 40 });
+  });
+}

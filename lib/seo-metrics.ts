@@ -1,38 +1,12 @@
 import { db } from "@/lib/db";
 import { getDateRange } from "@/lib/date-utils";
-import { comparePeriods, emptyGscPeriodMetrics, getGscDailyTraffic, getGscPeriodMetrics, getGscReadContext, getGscTopPages, getGscTopQueries, getStoredGscRange } from "@/lib/gsc/read-model";
-
-export type PeriodMetrics = {
-  clicks: number;
-  impressions: number;
-  avgPosition: number | null;
-  avgCtr: number | null;
-  uniqueKeywords: number;
-  startDate: string | null;
-  endDate: string | null;
-};
-
-export type KeywordRow = {
-  query: string;
-  clicks: number;
-  impressions: number;
-  position: number | null;
-  ctr: number | null;
-};
-
-export type PageRow = {
-  url: string;
-  clicks: number;
-  impressions: number;
-  position: number | null;
-  ctr: number | null;
-};
-
-export type DailyTraffic = {
-  date: string;
-  clicks: number;
-  impressions: number;
-};
+import * as v2 from "@/lib/gsc/read-model";
+import { aggregatePageRows, aggregatePeriodRows, aggregateQueryRows, comparePeriods, emptyGscPeriodMetrics, shouldUseGscV2, storedRangeEnding } from "@/lib/gsc/read-model";
+import { aggregateGscMetrics } from "@/lib/gsc/aggregate";
+import { previousDateRange, toDbDate } from "@/lib/gsc/date-range";
+import type { GscDateRange } from "@/lib/gsc/types";
+import type { DailyTraffic, GscReadScope, KeywordRow, PageRow, PeriodMetrics } from "@/lib/gsc/read-model";
+export type { DailyTraffic, KeywordRow, PageRow, PeriodMetrics } from "@/lib/gsc/read-model";
 
 function parseRange(days: number) {
   const { start, end } = getDateRange(days);
@@ -292,29 +266,145 @@ async function legacyGetDailyTraffic(
 export async function getSitePeriodMetrics(siteId: string, days = 28) {
   const context = await getGscReadContext(siteId);
   if (!context.useV2) return legacyGetSitePeriodMetrics(siteId, days);
-  const range = await getStoredGscRange(siteId, days);
-  return range ? getGscPeriodMetrics(siteId, range) : emptyGscPeriodMetrics();
+  const range = await storedRangeFor(context, days);
+  return range ? v2.getV2GscPeriodMetrics(context.scope, range) : emptyGscPeriodMetrics();
 }
 
 export async function getTopKeywords(siteId: string, days = 28, limit = 50): Promise<KeywordRow[]> {
   const context = await getGscReadContext(siteId);
   if (!context.useV2) return legacyGetTopKeywords(siteId, days, limit);
-  const range = await getStoredGscRange(siteId, days);
-  return range ? getGscTopQueries(siteId, range, limit) : [];
+  const range = await storedRangeFor(context, days);
+  return range ? v2.getV2GscTopQueries(context.scope, range, limit) : [];
 }
 
 export async function getTopPages(siteId: string, days = 28, limit = 50): Promise<PageRow[]> {
   const context = await getGscReadContext(siteId);
   if (!context.useV2) return legacyGetTopPages(siteId, days, limit);
-  const range = await getStoredGscRange(siteId, days);
-  return range ? getGscTopPages(siteId, range, limit) : [];
+  const range = await storedRangeFor(context, days);
+  return range ? v2.getV2GscTopPages(context.scope, range, limit) : [];
 }
 
 export async function getDailyTraffic(siteId: string, days = 90): Promise<DailyTraffic[]> {
   const context = await getGscReadContext(siteId);
   if (!context.useV2) return legacyGetDailyTraffic(siteId, days);
-  const range = await getStoredGscRange(siteId, days);
-  return range ? getGscDailyTraffic(siteId, range) : [];
+  const range = await storedRangeFor(context, days);
+  return range ? v2.getV2GscDailyTraffic(context.scope, range) : [];
+}
+
+type ReadContext = { scope: GscReadScope; useV2: boolean };
+
+async function getGscReadContext(siteId: string): Promise<ReadContext> {
+  const site = await db.site.findUnique({ where: { id: siteId }, select: { gscDataVersion: true, gscSearchType: true } });
+  return {
+    scope: { siteId, searchType: site?.gscSearchType ?? "web" },
+    useV2: shouldUseGscV2(site?.gscDataVersion ?? 1, process.env.GSC_READ_MODEL_V2),
+  };
+}
+
+function legacyWhere(siteId: string, range: GscDateRange) {
+  if (range.startDate > range.endDate) throw new Error("GSC range start must precede end");
+  return { siteId, date: { gte: toDbDate(range.startDate), lte: new Date(toDbDate(range.endDate).getTime() + 86_400_000 - 1) } };
+}
+
+async function storedRangeFor(context: ReadContext, days: number): Promise<GscDateRange | null> {
+  if (context.useV2) return v2.getV2StoredGscRange(context.scope, days);
+  const latest = await db.keyword.findFirst({ where: { siteId: context.scope.siteId }, orderBy: { date: "desc" }, select: { date: true } });
+  return latest ? storedRangeEnding(latest.date.toISOString().slice(0, 10), days) : null;
+}
+
+export async function getStoredGscRange(siteId: string, days = 28): Promise<GscDateRange | null> {
+  return storedRangeFor(await getGscReadContext(siteId), days);
+}
+
+export async function hasGscData(siteId: string): Promise<boolean> {
+  return (await getStoredGscRange(siteId, 1)) !== null;
+}
+
+export async function getGscPeriodMetrics(siteId: string, range: GscDateRange) {
+  const context = await getGscReadContext(siteId);
+  if (context.useV2) return v2.getV2GscPeriodMetrics(context.scope, range);
+  async function period(selectedRange: GscDateRange) {
+    const rows = await db.keyword.findMany({ where: legacyWhere(siteId, selectedRange) });
+    const normalized = rows.map((row) => ({ ...row, searchType: context.scope.searchType }));
+    return aggregatePeriodRows({ totals: normalized, queries: normalized }, { ...context.scope, range: selectedRange });
+  }
+  const [current, previous] = await Promise.all([period(range), period(previousDateRange(range))]);
+  return comparePeriods(current, previous);
+}
+
+export async function getGscTopQueries(siteId: string, range: GscDateRange, limit = 50): Promise<KeywordRow[]> {
+  const context = await getGscReadContext(siteId);
+  if (context.useV2) return v2.getV2GscTopQueries(context.scope, range, limit);
+  const rows = await db.keyword.findMany({ where: legacyWhere(siteId, range) });
+  return aggregateQueryRows(rows.map((row) => ({ ...row, searchType: context.scope.searchType })), { ...context.scope, range }).slice(0, limit);
+}
+
+export async function getGscPageMetricsForRange(siteId: string, range: GscDateRange): Promise<PageRow[]> {
+  const context = await getGscReadContext(siteId);
+  if (context.useV2) return v2.getV2GscPageMetricsForRange(context.scope, range);
+  const rows = await db.page.findMany({ where: legacyWhere(siteId, range) });
+  return aggregatePageRows(rows.map((row) => ({ ...row, searchType: context.scope.searchType })), { ...context.scope, range });
+}
+
+export async function getGscTopPages(siteId: string, range: GscDateRange, limit = 50): Promise<PageRow[]> {
+  return (await getGscPageMetricsForRange(siteId, range)).slice(0, limit);
+}
+
+export async function getGscDailyTraffic(siteId: string, range: GscDateRange): Promise<DailyTraffic[]> {
+  const context = await getGscReadContext(siteId);
+  if (context.useV2) return v2.getV2GscDailyTraffic(context.scope, range);
+  const pages = await db.page.findMany({ where: legacyWhere(siteId, range), orderBy: { date: "asc" } });
+  const rows = pages.length ? pages : await db.keyword.findMany({ where: legacyWhere(siteId, range), orderBy: { date: "asc" } });
+  const days = new Map<string, DailyTraffic>();
+  for (const row of rows) {
+    const date = row.date.toISOString().slice(0, 10);
+    const day = days.get(date) ?? { date, clicks: 0, impressions: 0 };
+    day.clicks += row.clicks;
+    day.impressions += row.impressions;
+    days.set(date, day);
+  }
+  return Array.from(days.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export async function getGscQueryHistory(siteId: string, query: string, days: number) {
+  const context = await getGscReadContext(siteId);
+  const range = await storedRangeFor(context, days);
+  if (!range) return [];
+  if (context.useV2) return v2.getV2GscQueryHistory(context.scope, query, range);
+  const rows = await db.keyword.findMany({ where: { ...legacyWhere(siteId, range), query }, orderBy: { date: "asc" } });
+  return rows.map((row) => ({ date: row.date, query: row.query, ...aggregateGscMetrics([row]) }));
+}
+
+export async function getGscLatestQueryMetric(siteId: string, query: string) {
+  const context = await getGscReadContext(siteId);
+  if (context.useV2) return v2.getV2GscLatestQueryMetric(context.scope, query);
+  const row = await db.keyword.findFirst({ where: { siteId, query }, orderBy: { date: "desc" } });
+  return row ? { date: row.date, query: row.query, page: row.page, ...aggregateGscMetrics([row]) } : null;
+}
+
+export async function getGscSavedQueryMetrics(siteId: string, queries: string[], days: number): Promise<Map<string, KeywordRow>> {
+  if (queries.length === 0) return new Map();
+  const context = await getGscReadContext(siteId);
+  const range = await storedRangeFor(context, days);
+  if (!range) return new Map();
+  if (context.useV2) return v2.getV2GscSavedQueryMetrics(context.scope, queries, range);
+  const rows = await db.keyword.findMany({ where: { ...legacyWhere(siteId, range), query: { in: queries } }, orderBy: { date: "asc" } });
+  const normalized = rows.map((row) => ({ ...row, searchType: context.scope.searchType }));
+  return new Map(aggregateQueryRows(normalized, { ...context.scope, range }).map((row) => [row.query, row]));
+}
+
+export async function getGscQueryPageRows(siteId: string, range: GscDateRange) {
+  const context = await getGscReadContext(siteId);
+  if (context.useV2) return v2.getV2GscQueryPageRows(context.scope, range);
+  const rows = await db.keyword.findMany({ where: { ...legacyWhere(siteId, range), page: { not: null } }, orderBy: { date: "asc" } });
+  return rows.flatMap((row) => row.page === null ? [] : [{ date: row.date, query: row.query, url: row.page, ...aggregateGscMetrics([row]) }]);
+}
+
+export async function getGscStoredCounts(siteId: string) {
+  const context = await getGscReadContext(siteId);
+  if (context.useV2) return v2.getV2GscStoredCounts(context.scope);
+  const [queries, pages] = await Promise.all([db.keyword.count({ where: { siteId } }), db.page.count({ where: { siteId } })]);
+  return { queries, pages };
 }
 
 export function formatPosition(position: number | null): string {
