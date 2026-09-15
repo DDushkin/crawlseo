@@ -22,6 +22,7 @@ function intercept(context: TestContext, object: object, method: string, impleme
 class FakeStore implements GscStore {
   leaseOwner: string | null = null;
   acquired: { siteId: string; ownerId: string; expiresAt: Date }[] = [];
+  renewals: { siteId: string; ownerId: string; expiresAt: Date }[] = [];
   released: { siteId: string; ownerId: string }[] = [];
   runs: CreateGscRunInput[] = [];
   replacements: ReplaceGscReportInput[] = [];
@@ -39,6 +40,10 @@ class FakeStore implements GscStore {
   async releaseLease(siteId: string, ownerId: string) {
     this.released.push({ siteId, ownerId });
     if (this.leaseOwner === ownerId) this.leaseOwner = null;
+  }
+  async renewLease(siteId: string, ownerId: string, expiresAt: Date) {
+    this.renewals.push({ siteId, ownerId, expiresAt });
+    return this.leaseOwner === ownerId;
   }
   async createRun(input: CreateGscRunInput) { this.runs.push(input); return `run-${this.runs.length}`; }
   async replaceReport(input: ReplaceGscReportInput) {
@@ -103,6 +108,7 @@ test("first sync requests 90 finalized dates and all six final web reports", asy
     assert.deepEqual(request.options, { type: "web", dataState: "final" });
   }
   assert.deepEqual(fixture.store.released, [{ siteId: "site-a", ownerId: "lease-owner-1" }]);
+  assert.deepEqual(fixture.store.renewals, Array.from({ length: 4 }, () => ({ siteId: "site-a", ownerId: "lease-owner-1", expiresAt: new Date("2026-09-15T12:30:00.000Z") })));
   assert.deepEqual(fixture.store.ready, ["site-a"]);
   assert.deepEqual(fixture.store.canonical.get("site-b:query"), ["other-site"]);
   assert.equal(fixture.store.finished[0].status, "COMPLETED");
@@ -236,6 +242,121 @@ test("run creation and failure-recording errors cannot skip lease release", asyn
   assert.doesNotMatch(JSON.stringify(result), /provider-secret|database-secret/);
 });
 
+test("expired owner cannot overwrite a newer completed import after lease takeover", async () => {
+  let clock = new Date("2026-09-15T12:00:00.000Z");
+  class TakeoverStore extends FakeStore {
+    expiresAt = new Date(0);
+    clicks = 0;
+    async acquireLease(siteId: string, ownerId: string, expiresAt: Date) {
+      if (this.expiresAt <= clock) this.leaseOwner = null;
+      const acquired = await super.acquireLease(siteId, ownerId, expiresAt);
+      if (acquired) this.expiresAt = expiresAt;
+      return acquired;
+    }
+    async renewLease(_siteId: string, ownerId: string, expiresAt: Date) {
+      if (this.leaseOwner !== ownerId || this.expiresAt <= clock) return false;
+      this.expiresAt = expiresAt;
+      return true;
+    }
+    async replaceReport(input: ReplaceGscReportInput) {
+      this.clicks = input.rows[0]?.clicks ?? 0;
+      return super.replaceReport(input);
+    }
+  }
+  const store = new TakeoverStore();
+  let signalPaused = () => {};
+  let resumeOld = () => {};
+  const paused = new Promise<void>((resolve) => { signalPaused = resolve; });
+  const resume = new Promise<void>((resolve) => { resumeOld = resolve; });
+  const makeService = (ownerId: string, clicks: number) => createGscSyncService({
+    store, now: () => clock, randomId: () => ownerId,
+    probeCoverage: async () => ({ finalizedThrough: "2026-09-12", source: "metadata" }),
+    fetchReport: async (...args) => {
+      if (ownerId === "old-owner" && args[3] === "dailyTotal") { signalPaused(); await resume; }
+      return { ...report(args[3]), rows: report(args[3]).rows.map((row) => ({ ...row, clicks, impressions: 10 })) };
+    },
+  });
+  const older = makeService("old-owner", 1).syncTarget(target, "INITIAL");
+  await paused;
+  clock = new Date("2026-09-15T12:31:00.000Z");
+  const newer = await makeService("new-owner", 2).syncTarget(target, "INITIAL");
+  assert.equal(newer.status, "completed");
+  assert.equal(store.clicks, 2);
+  resumeOld();
+  const stale = await older;
+  assert.equal(store.clicks, 2, "stale owner must preserve the newer canonical clicks");
+  assert.equal(stale.status, "failed");
+  assert.equal(stale.error?.code, "PROVIDER_ERROR");
+  assert.deepEqual(store.ready, ["site-a"]);
+  assert.equal(store.finished.find((run) => run.runId === "run-1")?.status, "FAILED");
+  assert.equal(store.replacements.length, 6);
+  assert.deepEqual(store.released.map((lease) => lease.ownerId), ["new-owner", "old-owner"]);
+  assert.doesNotMatch(JSON.stringify(stale), /old-owner|new-owner/);
+});
+
+test("lease expiry during the final fetch fails even when every report is incomplete", async () => {
+  let clock = now;
+  const fixture = setup({ now: () => clock, fetchReport: async (...args) => {
+    if (args[3] === "country") clock = new Date("2026-09-15T12:31:00.000Z");
+    return { ...report(args[3]), complete: false, truncatedAt: 250000 };
+  } });
+  fixture.store.renewLease = async () => clock < new Date("2026-09-15T12:30:00.000Z");
+  const result = await fixture.service.syncTarget(target, "MANUAL");
+  assert.equal(result.status, "failed");
+  assert.equal(fixture.store.finished[0].status, "FAILED");
+  assert.equal(result.error?.code, "PROVIDER_ERROR");
+  assert.deepEqual(fixture.store.replacements, []);
+  assert.deepEqual(fixture.store.ready, []);
+  assert.equal(fixture.store.leaseOwner, null);
+});
+
+test("Prisma canonical replacement and readiness atomically fence and renew the current unexpired owner", async (context) => {
+  const events: string[] = [];
+  let transactionActive = false;
+  let activeOwner = "current-owner";
+  let activeExpiry = new Date(Date.now() + 60_000);
+  const proposedExpiry = new Date(Date.now() + 30 * 60_000);
+  const lease = { ownerId: "current-owner", expiresAt: proposedExpiry };
+  intercept(context, db, "$transaction", async (callback: (tx: Prisma.TransactionClient) => Promise<unknown>) => {
+    events.push("begin"); transactionActive = true;
+    try { const result = await callback(db); events.push("commit"); return result; }
+    finally { transactionActive = false; }
+  });
+  intercept(context, db.gscSyncLease, "updateMany", async (input: { where: { siteId: string; ownerId: string; expiresAt: { gt: Date } }; data: { expiresAt: Date } }) => {
+    assert.equal(transactionActive, true, "renewal must share the canonical write transaction");
+    assert.equal(input.where.siteId, "site-a");
+    assert.equal(input.where.ownerId, "current-owner");
+    assert.ok(input.where.expiresAt.gt instanceof Date);
+    assert.ok(Math.abs(Date.now() - input.where.expiresAt.gt.getTime()) < 1000);
+    assert.deepEqual(input.data, { expiresAt: proposedExpiry });
+    events.push("renew");
+    if (activeOwner !== input.where.ownerId || activeExpiry <= input.where.expiresAt.gt) return { count: 0 };
+    activeExpiry = input.data.expiresAt;
+    return { count: 1 };
+  });
+  intercept(context, db.gscSyncRun, "findFirst", async () => ({ reportCounts: {}, reportStates: {} }));
+  intercept(context, db.gscSyncRun, "update", async () => { events.push("run"); return {}; });
+  intercept(context, db.gscDailyTotal, "deleteMany", async () => { events.push("delete"); return { count: 1 }; });
+  intercept(context, db.gscDailyTotal, "createMany", async () => { events.push("insert"); return { count: 1 }; });
+  intercept(context, db.site, "update", async () => { events.push("ready"); return {}; });
+  const input = { ...report("dailyTotal"), siteId: "site-a", runId: "run-a", searchType: "web" as const, range: { startDate: "2026-09-06", endDate: "2026-09-12" }, rows: report("dailyTotal").rows.map((row) => ({ ...row, siteId: "site-a" })), lease };
+  await prismaGscStore.replaceReport(input);
+  assert.deepEqual(events, ["begin", "renew", "delete", "insert", "run", "commit"]);
+  events.length = 0;
+  await prismaGscStore.markSiteReady("site-a", now, lease);
+  assert.deepEqual(events, ["begin", "renew", "ready", "commit"]);
+  for (const invalidLease of ["different-owner", "expired"]) {
+    activeOwner = invalidLease === "different-owner" ? "new-owner" : "current-owner";
+    activeExpiry = invalidLease === "expired" ? new Date(0) : proposedExpiry;
+    events.length = 0;
+    await assert.rejects(prismaGscStore.replaceReport(input), { code: "PROVIDER_ERROR" });
+    assert.deepEqual(events, ["begin", "renew"]);
+    events.length = 0;
+    await assert.rejects(prismaGscStore.markSiteReady("site-a", now, lease), { code: "PROVIDER_ERROR" });
+    assert.deepEqual(events, ["begin", "renew"]);
+  }
+});
+
 test("Prisma replacement confines all six tables to the target scope and one transaction", async (context) => {
   let transactionActive = false;
   let transactions = 0;
@@ -252,6 +373,7 @@ test("Prisma replacement confines all six tables to the target scope and one tra
     return { reportCounts: null, reportStates: null };
   });
   intercept(context, db.gscSyncRun, "update", async (input: unknown) => { updates.push(input); return {}; });
+  intercept(context, db.gscSyncLease, "updateMany", async () => ({ count: 1 }));
   for (const delegate of [db.gscDailyTotal, db.gscQueryDaily, db.gscPageDaily, db.gscQueryPageDaily, db.gscDeviceDaily, db.gscCountryDaily]) {
     intercept(context, delegate, "deleteMany", async (input: unknown) => {
       assert.equal(transactionActive, true); deletes.push(input); return { count: 1 };
@@ -261,7 +383,7 @@ test("Prisma replacement confines all six tables to the target scope and one tra
     });
   }
   for (const kind of GSC_REPORT_KINDS) {
-    assert.equal(await prismaGscStore.replaceReport({ siteId: "site-a", runId: "run-a", searchType: "web", range: { startDate: "2026-09-06", endDate: "2026-09-12" }, ...report(kind), rows: report(kind).rows.map((row) => ({ ...row, siteId: "attacker-site" })) }), 1);
+    assert.equal(await prismaGscStore.replaceReport({ siteId: "site-a", runId: "run-a", searchType: "web", lease: { ownerId: "owner-a", expiresAt: now }, range: { startDate: "2026-09-06", endDate: "2026-09-12" }, ...report(kind), rows: report(kind).rows.map((row) => ({ ...row, siteId: "attacker-site" })) }), 1);
   }
   assert.equal(transactions, 6);
   assert.equal(deletes.length, 6);
@@ -285,7 +407,7 @@ test("Prisma incomplete replacement writes only run count/state and preserves ca
     intercept(context, delegate, "deleteMany", async () => assert.fail("Incomplete reports must not delete canonical rows"));
     intercept(context, delegate, "createMany", async () => assert.fail("Incomplete reports must not insert canonical rows"));
   }
-  const count = await prismaGscStore.replaceReport({ ...report("query"), siteId: "site-a", runId: "run-a", searchType: "web", range: { startDate: "2026-09-06", endDate: "2026-09-12" }, rows: report("query").rows.map((row) => ({ ...row, siteId: "attacker-site" })), complete: false, truncatedAt: 250000 });
+  const count = await prismaGscStore.replaceReport({ ...report("query"), siteId: "site-a", runId: "run-a", searchType: "web", lease: { ownerId: "owner-a", expiresAt: now }, range: { startDate: "2026-09-06", endDate: "2026-09-12" }, rows: report("query").rows.map((row) => ({ ...row, siteId: "attacker-site" })), complete: false, truncatedAt: 250000 });
   assert.equal(count, 0);
   assert.deepEqual(updates, [{ where: { id: "run-a", siteId: "site-a" }, data: { reportCounts: { page: 3, query: 1 }, reportStates: { query: { complete: false, pagesFetched: 1, truncatedAt: 250000 } } } }]);
 });
@@ -312,10 +434,12 @@ test("Prisma leases expire only the target lease and release only its matching o
 
 test("Prisma ownership resolution rejects foreign sites and readiness updates one site", async (context) => {
   const updates: unknown[] = [];
+  intercept(context, db, "$transaction", async (callback: (tx: Prisma.TransactionClient) => Promise<unknown>) => callback(db));
+  intercept(context, db.gscSyncLease, "updateMany", async () => ({ count: 1 }));
   intercept(context, db.site, "findUnique", async () => ({ id: "site-a", userId: "user-a", gscProperty: target.property, gscSearchType: "web", gscDataVersion: 1 }));
   intercept(context, db.site, "update", async (input: unknown) => { updates.push(input); return {}; });
   await assert.rejects(prismaGscStore.resolveOwnedTarget("user-b", "site-a"), { code: "UNAUTHORIZED" });
   assert.deepEqual(await prismaGscStore.resolveOwnedTarget("user-a", "site-a"), target);
-  await prismaGscStore.markSiteReady("site-a", now);
+  await prismaGscStore.markSiteReady("site-a", now, { ownerId: "owner-a", expiresAt: now });
   assert.deepEqual(updates, [{ where: { id: "site-a" }, data: { gscDataVersion: 2, lastGscSyncAt: now } }]);
 });

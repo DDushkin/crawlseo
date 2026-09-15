@@ -57,6 +57,12 @@ export function createGscSyncService(deps: GscSyncDependencies): {
       let reconciliation: GscReconciliation | null = null;
       let acquired = false;
       const ownerId = deps.randomId();
+      const leaseRenewal = () => ({ ownerId, expiresAt: new Date(deps.now().getTime() + 30 * 60 * 1000) });
+      const renewLease = async () => {
+        if (!await deps.store.renewLease(target.siteId, ownerId, leaseRenewal().expiresAt)) {
+          throw new GscSyncError("PROVIDER_ERROR", "The synchronization lease is no longer owned by this run.");
+        }
+      };
       try {
         const startedAt = deps.now();
         acquired = await deps.store.acquireLease(target.siteId, ownerId, new Date(startedAt.getTime() + 30 * 60 * 1000));
@@ -70,6 +76,7 @@ export function createGscSyncService(deps: GscSyncDependencies): {
         result.endDate = effectiveRange.endDate;
         const reports: Partial<Record<GscReportKind, GscReportResult>> = {};
         for (let offset = 0; offset < GSC_REPORT_KINDS.length; offset += 2) {
+          await renewLease();
           const kinds = GSC_REPORT_KINDS.slice(offset, offset + 2);
           // Drain both requests on failure before releasing the lease.
           const settled = await Promise.allSettled(kinds.map((kind) => deps.fetchReport(
@@ -86,11 +93,14 @@ export function createGscSyncService(deps: GscSyncDependencies): {
           }
           for (const response of settled) if (response.status === "rejected") throw response.reason;
         }
+        // Incomplete-only results also need to detect lease loss in the final batch.
+        await renewLease();
         for (const kind of GSC_REPORT_KINDS) {
           const report = reports[kind]!;
           if (!report.complete) continue;
           await deps.store.replaceReport({ siteId: target.siteId, runId: result.runId, searchType: target.searchType,
             range: effectiveRange, kind, complete: true, pagesFetched: report.pagesFetched, truncatedAt: report.truncatedAt,
+            lease: leaseRenewal(),
             rows: report.rows.map((row) => ({ ...row, siteId: target.siteId })),
           });
         }
@@ -98,7 +108,7 @@ export function createGscSyncService(deps: GscSyncDependencies): {
         reconciliation = reconcileGscReports({ totals: metrics("dailyTotal"), query: metrics("query"), page: metrics("page"), device: metrics("device"), country: metrics("country"), reportStates });
         result.warnings = reconciliation.warnings;
         result.status = result.warnings.length ? "completed-with-warnings" : "completed";
-        if (GSC_REPORT_KINDS.every((kind) => reports[kind]!.complete)) await deps.store.markSiteReady(target.siteId, deps.now());
+        if (GSC_REPORT_KINDS.every((kind) => reports[kind]!.complete)) await deps.store.markSiteReady(target.siteId, deps.now(), leaseRenewal());
         await deps.store.finishRun({ siteId: target.siteId, runId: result.runId,
           status: result.status === "completed" ? "COMPLETED" : "COMPLETED_WITH_WARNINGS",
           effectiveRange, reportCounts: result.reportCounts, reportStates, reconciliation, finishedAt: deps.now(),

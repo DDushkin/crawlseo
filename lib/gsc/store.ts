@@ -28,6 +28,7 @@ export type CreateGscRunInput = {
   requestedRange: GscDateRange;
   startedAt: Date;
 };
+export type GscLeaseRenewal = { ownerId: string; expiresAt: Date };
 export type ReplaceGscReportInput = {
   siteId: string;
   runId: string;
@@ -38,6 +39,7 @@ export type ReplaceGscReportInput = {
   complete: boolean;
   pagesFetched: number;
   truncatedAt: number | null;
+  lease: GscLeaseRenewal;
 };
 export type FinishGscRunInput = {
   siteId: string;
@@ -55,16 +57,33 @@ export interface GscStore {
   resolveOwnedTarget(userId: string, siteId: string): Promise<GscSyncTarget>;
   listScheduledTargets(): Promise<GscSyncTarget[]>;
   acquireLease(siteId: string, ownerId: string, expiresAt: Date): Promise<boolean>;
+  renewLease(siteId: string, ownerId: string, expiresAt: Date): Promise<boolean>;
   releaseLease(siteId: string, ownerId: string): Promise<void>;
   createRun(input: CreateGscRunInput): Promise<string>;
   replaceReport(input: ReplaceGscReportInput): Promise<number>;
   finishRun(input: FinishGscRunInput): Promise<void>;
-  markSiteReady(siteId: string, syncedAt: Date): Promise<void>;
+  markSiteReady(siteId: string, syncedAt: Date, lease: GscLeaseRenewal): Promise<void>;
 }
 
 function dimension(value: string | undefined): string {
   if (value === undefined) throw new GscSyncError("PROVIDER_ERROR", "A report dimension is missing.");
   return value;
+}
+
+async function renewCurrentLease(client: Pick<Prisma.TransactionClient, "gscSyncLease">, siteId: string, lease: GscLeaseRenewal): Promise<boolean> {
+  const renewed = await client.gscSyncLease.updateMany({
+    where: { siteId, ownerId: lease.ownerId, expiresAt: { gt: new Date() } },
+    data: { expiresAt: lease.expiresAt },
+  });
+  return renewed.count === 1;
+}
+
+async function fenceCanonicalWrite(tx: Prisma.TransactionClient, siteId: string, lease: GscLeaseRenewal): Promise<void> {
+  // The conditional UPDATE locks this lease row until the canonical transaction
+  // commits, so an expired-lease takeover cannot slip between this check and write.
+  if (!await renewCurrentLease(tx, siteId, lease)) {
+    throw new GscSyncError("PROVIDER_ERROR", "The synchronization lease is no longer owned by this run.");
+  }
 }
 
 export const prismaGscStore: GscStore = {
@@ -103,6 +122,10 @@ export const prismaGscStore: GscStore = {
     await db.gscSyncLease.deleteMany({ where: { siteId, ownerId } });
   },
 
+  async renewLease(siteId, ownerId, expiresAt) {
+    return renewCurrentLease(db, siteId, { ownerId, expiresAt });
+  },
+
   async createRun(input) {
     const run = await db.gscSyncRun.create({ data: {
       siteId: input.siteId, trigger: input.trigger, searchType: input.searchType,
@@ -114,6 +137,7 @@ export const prismaGscStore: GscStore = {
 
   async replaceReport(input) {
     return db.$transaction(async (tx) => {
+      if (input.complete) await fenceCanonicalWrite(tx, input.siteId, input.lease);
       const run = await tx.gscSyncRun.findFirst({ where: { id: input.runId, siteId: input.siteId, searchType: input.searchType }, select: { reportCounts: true, reportStates: true } });
       if (!run) throw new GscSyncError("NOT_FOUND", "Sync run was not found for this site.");
       if (input.complete) {
@@ -172,7 +196,10 @@ export const prismaGscStore: GscStore = {
     } });
   },
 
-  async markSiteReady(siteId, syncedAt) {
-    await db.site.update({ where: { id: siteId }, data: { gscDataVersion: 2, lastGscSyncAt: syncedAt } });
+  async markSiteReady(siteId, syncedAt, lease) {
+    await db.$transaction(async (tx) => {
+      await fenceCanonicalWrite(tx, siteId, lease);
+      await tx.site.update({ where: { id: siteId }, data: { gscDataVersion: 2, lastGscSyncAt: syncedAt } });
+    });
   },
 };
