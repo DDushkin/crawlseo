@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { pacificDateLabel, shiftDateLabel } from "./date-range";
 import type { DailyTraffic } from "../seo-metrics";
+import { getV2GscReportCoverage } from "./read-model";
 
 export type GscDataHealth = {
   state: "unavailable" | "syncing" | "fresh" | "stale" | "partial" | "failed" | "reauth-required";
@@ -68,10 +69,10 @@ export async function getGscDataHealth(siteId: string): Promise<GscDataHealth> {
   const [latestRun, lastSuccessfulRun, dates] = await Promise.all([
     db.gscSyncRun.findFirst({ where, orderBy: { startedAt: "desc" }, select }),
     db.gscSyncRun.findFirst({ where: { ...where, status: { in: ["COMPLETED", "COMPLETED_WITH_WARNINGS"] } }, orderBy: { startedAt: "desc" }, select }),
-    db.gscDailyTotal.aggregate({ where: { siteId, property, searchType, syncRun: { property } }, _min: { date: true }, _max: { date: true } }),
+    getV2GscReportCoverage({ siteId, property, searchType }, "dailyTotal"),
   ]);
   return projectGscDataHealth({ ...empty, latestRun, lastSuccessfulRun,
-    startDate: dates._min.date?.toISOString().slice(0, 10) ?? null, endDate: dates._max.date?.toISOString().slice(0, 10) ?? null });
+    startDate: dates?.startDate ?? null, endDate: dates?.endDate ?? null });
 }
 
 export type TrafficResponse = { coverage: { startDate: string | null; endDate: string | null }; rows: DailyTraffic[] };

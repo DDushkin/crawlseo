@@ -26,14 +26,12 @@ function site(t: TestContext, version = 2) {
   t.after(() => { if (flag === undefined) delete process.env.GSC_READ_MODEL_V2; else process.env.GSC_READ_MODEL_V2 = flag; });
 }
 
-test("health for property B ignores A runs and totals", async (t) => {
+test("health for property B ignores A runs and coverage", async (t) => {
   site(t);
   const run = { status: "COMPLETED", finishedAt: row.date, reportStates: {}, reconciliation: null, errorCode: null, errorMessage: null };
   intercept(t, db.gscSyncRun, "findFirst", async ({ where }: { where: { property?: string } }) => where.property === propertyB ? null : run);
-  intercept(t, db.gscDailyTotal, "aggregate", async ({ where }: { where: { property?: string; syncRun?: { property: string } } }) => ({
-    _min: { date: where.property === propertyB && where.syncRun?.property === propertyB ? null : row.date },
-    _max: { date: where.property === propertyB && where.syncRun?.property === propertyB ? null : row.date },
-  }));
+  intercept(t, db.gscReportCoverage, "findFirst", async ({ where }: { where: { property?: string; syncRun?: { property: string } } }) =>
+    where.property === propertyB && where.syncRun?.property === propertyB ? null : { startDate: row.date, endDate: row.date });
   const health = await getGscDataHealth("site");
   assert.equal(health.state, "unavailable");
   assert.equal(health.endDate, null);
@@ -43,6 +41,11 @@ test("health for property B ignores A runs and totals", async (t) => {
 test("all V2 facade reads scope current property and originating sync run", async (t) => {
   site(t);
   let reads = 0;
+  intercept(t, db.gscReportCoverage, "findFirst", async ({ where }: { where: Record<string, unknown> }) => {
+    assert.equal(where.siteId, "site"); assert.equal(where.property, propertyB); assert.equal(where.searchType, "web");
+    assert.deepEqual(where.syncRun, { property: propertyB });
+    return { startDate: new Date("2026-06-15"), endDate: row.date };
+  });
   for (const delegate of [db.gscDailyTotal, db.gscQueryDaily, db.gscPageDaily, db.gscQueryPageDaily]) {
     for (const method of ["findFirst", "findMany", "count"]) intercept(t, delegate, method, async ({ where }: { where: Record<string, unknown> }) => {
       reads++;
@@ -114,6 +117,10 @@ test("run creation persists its target property and replacement scopes retain ot
   intercept(t, db.gscSyncLease, "updateMany", async () => ({ count: 1 }));
   intercept(t, db.gscSyncRun, "findFirst", async ({ where }: { where: { property?: string } }) => { assert.equal(where.property, propertyB); return { reportCounts: {}, reportStates: {} }; });
   intercept(t, db.gscSyncRun, "update", async () => ({}));
+  intercept(t, db.gscReportCoverage, "findFirst", async () => null);
+  intercept(t, db.gscReportCoverage, "upsert", async ({ create }: { create: { property: string; syncRunId: string } }) => {
+    assert.equal(create.property, propertyB); assert.equal(create.syncRunId, "run-b"); return create;
+  });
   for (const delegate of [db.gscDailyTotal, db.gscQueryDaily, db.gscPageDaily, db.gscQueryPageDaily, db.gscDeviceDaily, db.gscCountryDaily]) {
     intercept(t, delegate, "deleteMany", async ({ where }: { where: { property?: string } }) => { assert.equal(where.property, propertyB); return { count: 0 }; });
     intercept(t, delegate, "createMany", async ({ data }: { data: { property?: string }[] }) => { assert.equal(data[0].property, propertyB); return { count: 1 }; });

@@ -13,7 +13,7 @@ test("demo seed writes six coherent V2 grains, keeps legacy data and marks only 
   let finish!: () => void;
   const finished = new Promise<void>((resolve) => { finish = resolve; });
   const fake = Object.fromEntries([
-    "keyword", "page", "gscSyncRun", "gscDailyTotal", "gscQueryDaily", "gscPageDaily", "gscQueryPageDaily", "gscDeviceDaily", "gscCountryDaily", "savedKeyword", "crawl", "auditPage", "crawlIssue", "auditLink", "vitalsReport", "alert",
+    "keyword", "page", "gscSyncRun", "gscReportCoverage", "gscDailyTotal", "gscQueryDaily", "gscPageDaily", "gscQueryPageDaily", "gscDeviceDaily", "gscCountryDaily", "savedKeyword", "crawl", "auditPage", "crawlIssue", "auditLink", "vitalsReport", "alert",
   ].map((name) => [name, {
     create: async ({ data }: { data: SeedRow }) => { writes.set(name, [...(writes.get(name) ?? []), data]); events.push(name); return { id: `${name}-id`, ...data }; },
     createMany: async ({ data }: { data: SeedRow[] }) => { writes.set(name, [...(writes.get(name) ?? []), ...data]); events.push(name); return { count: data.length }; },
@@ -46,6 +46,17 @@ test("demo seed writes six coherent V2 grains, keeps legacy data and marks only 
     }
   }
   assert.equal(totals.length, 28);
+  const coverage = writes.get("gscReportCoverage") as unknown as { siteId: string; property: string; searchType: string; reportKind: string; startDate: Date; endDate: Date; syncRunId: string }[] | undefined;
+  assert.equal(coverage?.length, 6);
+  assert.deepEqual(coverage?.map((row) => row.reportKind).sort(), ["country", "dailyTotal", "device", "page", "query", "queryPage"]);
+  for (const row of coverage ?? []) {
+    assert.equal(row.siteId, "demo-site");
+    assert.equal(row.property, "sc-domain:acme.com");
+    assert.equal(row.searchType, "web");
+    assert.equal(row.syncRunId, "gscSyncRun-id");
+    assert.equal(row.startDate.toISOString().slice(0, 10), "2026-08-15");
+    assert.equal(row.endDate.toISOString().slice(0, 10), "2026-09-11");
+  }
   // At 01:00 UTC the Pacific calendar is still September 14: minus three days is September 11.
   const labels = totals.map((row) => row.date.toISOString().slice(0, 10)).sort();
   assert.equal(labels.at(-1), "2026-09-11");
@@ -90,7 +101,7 @@ test("demo seed writes six coherent V2 grains, keeps legacy data and marks only 
   assert.equal(updates[0].data.gscSearchType, "web");
   assert.ok(updates[0].data.lastGscSyncAt instanceof Date);
   assert.equal(updates[0].data.lastGscSyncAt.toISOString(), "2026-09-15T01:00:00.000Z");
-  for (const table of ["gscDailyTotal", "gscQueryDaily", "gscPageDaily", "gscQueryPageDaily", "gscDeviceDaily", "gscCountryDaily"]) {
+  for (const table of ["gscReportCoverage", "gscDailyTotal", "gscQueryDaily", "gscPageDaily", "gscQueryPageDaily", "gscDeviceDaily", "gscCountryDaily"]) {
     assert.ok(events.lastIndexOf(table) < events.indexOf("ready"));
   }
 });

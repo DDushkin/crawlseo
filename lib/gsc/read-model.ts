@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { aggregateGscMetrics, compareGscMetrics } from "./aggregate";
 import { inclusiveRangeEnding, previousDateRange, toDbDate } from "./date-range";
-import type { GscDateRange } from "./types";
+import type { GscDateRange, GscReportKind } from "./types";
 
 export type PeriodMetrics = {
   clicks: number;
@@ -80,9 +80,23 @@ function whereFor(context: GscReadScope, range: GscDateRange) {
 }
 
 export async function getV2StoredGscRange(scope: GscReadScope, days: number): Promise<GscDateRange | null> {
-  const latest = await db.gscDailyTotal.findFirst({ where: propertyScope(scope), orderBy: { date: "desc" }, select: { date: true } });
-  // Canonical totals are replaced only after a complete, finalized report fetch.
-  return latest ? storedRangeEnding(latest.date.toISOString().slice(0, 10), days) : null;
+  const coverage = await getV2GscReportCoverage(scope, "dailyTotal");
+  if (!coverage) return null;
+  const range = storedRangeEnding(coverage.endDate, days);
+  return coverage.startDate <= range.startDate ? range : null;
+}
+
+export async function getV2GscReportCoverage(scope: GscReadScope, kind: GscReportKind): Promise<GscDateRange | null> {
+  const coverage = await db.gscReportCoverage.findFirst({
+    where: { ...propertyScope(scope), reportKind: kind }, select: { startDate: true, endDate: true },
+  });
+  return coverage ? { startDate: coverage.startDate.toISOString().slice(0, 10), endDate: coverage.endDate.toISOString().slice(0, 10) } : null;
+}
+
+export async function hasV2CompleteGscReportCoverage(scope: GscReadScope, kind: GscReportKind, range: GscDateRange): Promise<boolean> {
+  const coverage = await getV2GscReportCoverage(scope, kind);
+  return coverage !== null && range.startDate <= range.endDate &&
+    coverage.startDate <= range.startDate && coverage.endDate >= range.endDate;
 }
 
 export function comparePeriods(current: PeriodMetrics, previous: PeriodMetrics) {

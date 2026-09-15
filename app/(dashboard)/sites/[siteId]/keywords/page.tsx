@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { getTopKeywords } from "@/lib/seo-metrics";
+import { getGscDataHealth } from "@/lib/gsc/health";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SyncButton } from "@/components/sites/sync-button";
@@ -27,7 +28,7 @@ export default async function KeywordsPage({ params }: KeywordsPageProps) {
   }
 
   // Load a wide set so position/impression filters aren't capped to top-by-clicks.
-  const keywords = await getTopKeywords(siteId, 28, 1000);
+  const [keywords, health] = await Promise.all([getTopKeywords(siteId, 28, 1000), getGscDataHealth(siteId)]);
 
   return (
     <div>
@@ -37,7 +38,7 @@ export default async function KeywordsPage({ params }: KeywordsPageProps) {
         description="Queries with impressions in the last 28 days, aggregated across days."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <DataLagBadge />
+            <DataLagBadge health={health} />
             <CsvExportButton siteId={siteId} type="keywords" />
             <SyncButton siteId={siteId} />
           </div>

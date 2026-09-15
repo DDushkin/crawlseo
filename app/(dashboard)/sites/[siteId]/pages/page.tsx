@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SyncButton } from "@/components/sites/sync-button";
 import { CsvExportButton } from "@/components/ui/csv-export-button";
 import { DataLagBadge } from "@/components/ui/data-lag-badge";
+import { getGscDataHealth } from "@/lib/gsc/health";
 import {
   PositionBadge,
   MetricTable,
@@ -31,7 +32,7 @@ export default async function PagesPage({ params }: PagesPageProps) {
     redirect("/sites");
   }
 
-  const pages = await getTopPages(siteId, 28, 100);
+  const [pages, health] = await Promise.all([getTopPages(siteId, 28, 100), getGscDataHealth(siteId)]);
 
   return (
     <div>
@@ -41,7 +42,7 @@ export default async function PagesPage({ params }: PagesPageProps) {
         description="Landing pages from Search Console, aggregated over the last 28 days."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <DataLagBadge />
+            <DataLagBadge health={health} />
             <CsvExportButton siteId={siteId} type="pages" />
             <SyncButton siteId={siteId} />
           </div>

@@ -4,7 +4,7 @@ import * as v2 from "@/lib/gsc/read-model";
 import { aggregatePageRows, aggregatePeriodRows, aggregateQueryRows, comparePeriods, emptyGscPeriodMetrics, shouldUseGscV2, storedRangeEnding } from "@/lib/gsc/read-model";
 import { aggregateGscMetrics } from "@/lib/gsc/aggregate";
 import { previousDateRange, toDbDate } from "@/lib/gsc/date-range";
-import type { GscDateRange } from "@/lib/gsc/types";
+import type { GscDateRange, GscReportKind } from "@/lib/gsc/types";
 import type { DailyTraffic, GscReadScope, KeywordRow, PageRow, PeriodMetrics } from "@/lib/gsc/read-model";
 export type { DailyTraffic, KeywordRow, PageRow, PeriodMetrics } from "@/lib/gsc/read-model";
 
@@ -325,6 +325,13 @@ export async function getStoredGscRange(siteId: string, days = 28): Promise<GscD
 
 export async function hasGscData(siteId: string): Promise<boolean> {
   return (await getStoredGscRange(siteId, 1)) !== null;
+}
+
+/** V2 recommendations require complete evidence; legacy rollback has no coverage records. */
+export async function hasCompleteGscReportCoverage(siteId: string, kind: GscReportKind, range: GscDateRange): Promise<boolean> {
+  const context = await getGscReadContext(siteId);
+  if (!context.available) return false;
+  return !context.useV2 || v2.hasV2CompleteGscReportCoverage(context.scope, kind, range);
 }
 
 export async function getGscPeriodMetrics(siteId: string, range: GscDateRange) {

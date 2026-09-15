@@ -1,5 +1,5 @@
 import { previousDateRange } from "@/lib/gsc/date-range";
-import { getTopKeywords, getTopPages, getStoredGscRange, getGscPageMetricsForRange, getGscQueryPageRows, type KeywordRow } from "@/lib/seo-metrics";
+import { getTopKeywords, getTopPages, getStoredGscRange, getGscPageMetricsForRange, getGscQueryPageRows, hasCompleteGscReportCoverage, type KeywordRow } from "@/lib/seo-metrics";
 
 function hasKnownMetrics(row: KeywordRow): row is KeywordRow & { position: number; ctr: number } {
   return row.position !== null && row.ctr !== null;
@@ -27,6 +27,8 @@ export type Opportunity = {
 };
 
 export async function getStrikingDistance(siteId: string, limit = 25) {
+  const range = await getStoredGscRange(siteId, 28);
+  if (!range || !await hasCompleteGscReportCoverage(siteId, "query", range)) return [];
   const keywords = await getTopKeywords(siteId, 28, 200);
   return keywords
     .filter(hasKnownMetrics)
@@ -44,6 +46,8 @@ export async function getStrikingDistance(siteId: string, limit = 25) {
 }
 
 export async function getLowCtrOpportunities(siteId: string, limit = 25) {
+  const range = await getStoredGscRange(siteId, 28);
+  if (!range || !await hasCompleteGscReportCoverage(siteId, "query", range)) return [];
   const keywords = await getTopKeywords(siteId, 28, 200);
   return keywords
     .filter(hasKnownMetrics)
@@ -62,6 +66,7 @@ export async function getContentDecay(siteId: string, limit = 20) {
   const current = await getStoredGscRange(siteId, 28);
   if (!current) return [];
   const previous = previousDateRange(current);
+  if (!await hasCompleteGscReportCoverage(siteId, "page", { startDate: previous.startDate, endDate: current.endDate })) return [];
 
   const [currPages, prevPages] = await Promise.all([
     getGscPageMetricsForRange(siteId, current),
@@ -95,6 +100,7 @@ export async function getContentDecay(siteId: string, limit = 20) {
 export async function getCannibalization(siteId: string, limit = 20) {
   const r = await getStoredGscRange(siteId, 28);
   if (!r) return [];
+  if (!await hasCompleteGscReportCoverage(siteId, "queryPage", r)) return [];
   const rows = await getGscQueryPageRows(siteId, r);
 
   type Agg = {

@@ -251,3 +251,20 @@ ALTER TABLE "GscCountryDaily" ADD CONSTRAINT "GscCountryDaily_syncRunId_fkey" FO
 
 -- AddForeignKey
 ALTER TABLE "GscSyncLease" ADD CONSTRAINT "GscSyncLease_siteId_fkey" FOREIGN KEY ("siteId") REFERENCES "Site"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Complete report scopes exist independently of traffic rows, including empty reports.
+CREATE TABLE "GscReportCoverage" (
+    "siteId" TEXT NOT NULL,
+    "property" TEXT NOT NULL,
+    "searchType" TEXT NOT NULL DEFAULT 'web',
+    "reportKind" TEXT NOT NULL,
+    "startDate" DATE NOT NULL,
+    "endDate" DATE NOT NULL,
+    "syncRunId" TEXT NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "GscReportCoverage_pkey" PRIMARY KEY ("siteId", "property", "searchType", "reportKind")
+);
+
+ALTER TABLE "GscReportCoverage" ADD CONSTRAINT "GscReportCoverage_siteId_fkey" FOREIGN KEY ("siteId") REFERENCES "Site"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "GscReportCoverage" ADD CONSTRAINT "GscReportCoverage_syncRunId_fkey" FOREIGN KEY ("syncRunId") REFERENCES "GscSyncRun"("id") ON DELETE CASCADE ON UPDATE CASCADE;

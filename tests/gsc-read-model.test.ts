@@ -88,11 +88,11 @@ function siteVersion(context: TestContext, version: number, flag?: string) {
   });
 }
 
-test("facade selects canonical property totals with adjacent stored periods", async (context) => {
+test("facade selects canonical property totals with adjacent covered periods", async (context) => {
   siteVersion(context, 2);
-  intercept(context, db.gscDailyTotal, "findFirst", async (input: unknown) => {
-    assert.deepEqual(input, { where: { siteId: "site-a", property: "sc-domain:example.com", searchType: "web", syncRun: { property: "sc-domain:example.com" } }, orderBy: { date: "desc" }, select: { date: true } });
-    return { date: row.date };
+  intercept(context, db.gscReportCoverage, "findFirst", async (input: unknown) => {
+    assert.deepEqual(input, { where: { siteId: "site-a", property: "sc-domain:example.com", searchType: "web", syncRun: { property: "sc-domain:example.com" }, reportKind: "dailyTotal" }, select: { startDate: true, endDate: true } });
+    return { startDate: new Date("2026-06-15"), endDate: row.date };
   });
   const ranges: unknown[] = [];
   intercept(context, db.gscDailyTotal, "findMany", async (input: { where: { date: { gte: Date; lte: Date }; siteId: string; searchType: string } }) => {
@@ -119,7 +119,7 @@ for (const [version, flag] of [[1, "true"], [2, "false"]] as const) {
     siteVersion(context, version, flag);
     intercept(context, db.keyword, "findMany", async () => [{ ...row, query: "legacy" }]);
     intercept(context, db.page, "findMany", async () => [{ ...row, url: "/legacy" }]);
-    intercept(context, db.gscDailyTotal, "findFirst", async () => { throw new Error("V2 must not be read"); });
+    intercept(context, db.gscReportCoverage, "findFirst", async () => { throw new Error("V2 must not be read"); });
     assert.equal((await getSitePeriodMetrics("site-a")).current.clicks, 10);
     assert.equal((await getTopKeywords("site-a"))[0].query, "legacy");
     assert.equal((await getTopPages("site-a"))[0].url, "/legacy");
@@ -127,9 +127,9 @@ for (const [version, flag] of [[1, "true"], [2, "false"]] as const) {
   });
 }
 
-test("no canonical property totals means no usable data or stored range", async (context) => {
+test("no complete property-total coverage means no usable data or stored range", async (context) => {
   siteVersion(context, 2);
-  intercept(context, db.gscDailyTotal, "findFirst", async () => null);
+  intercept(context, db.gscReportCoverage, "findFirst", async () => null);
   assert.equal(await readers.getStoredGscRange("site-a", 28), null);
   assert.equal(await readers.hasGscData("site-a"), false);
   const metrics = await getSitePeriodMetrics("site-a");
@@ -141,7 +141,7 @@ test("no canonical property totals means no usable data or stored range", async 
 
 test("query details use scoped ranges and same-day leading pages, saved rows use one batch", async (context) => {
   siteVersion(context, 2);
-  intercept(context, db.gscDailyTotal, "findFirst", async () => ({ date: row.date }));
+  intercept(context, db.gscReportCoverage, "findFirst", async () => ({ startDate: new Date("2026-06-15"), endDate: row.date }));
   let queryCalls = 0;
   intercept(context, db.gscQueryDaily, "findMany", async (input: { where: { siteId: string; searchType: string; date: unknown; query: unknown } }) => {
     queryCalls += 1;
@@ -191,7 +191,7 @@ test("keyword filters exclude unknown positions and metric sorting keeps nulls l
 
 test("opportunity rules skip unavailable metrics and CSV exports use empty cells", async (context) => {
   siteVersion(context, 2);
-  intercept(context, db.gscDailyTotal, "findFirst", async () => ({ date: row.date }));
+  intercept(context, db.gscReportCoverage, "findFirst", async () => ({ startDate: new Date("2026-06-15"), endDate: row.date }));
   intercept(context, db.gscQueryDaily, "findMany", async () => [
     { ...row, query: "empty", clicks: 0, impressions: 0 },
     { ...row, query: "valid", clicks: 0, position: 5 },
@@ -206,7 +206,7 @@ test("opportunity rules skip unavailable metrics and CSV exports use empty cells
 test("V2 pages, daily traffic, counts and query-page reports use their own scoped canonical tables", async (context) => {
   siteVersion(context, 2);
   const expectedWhere = { siteId: "site-a", property: "sc-domain:example.com", syncRun: { property: "sc-domain:example.com" }, searchType: "web", date: { gte: new Date("2026-09-11"), lte: new Date("2026-09-12") } };
-  intercept(context, db.gscDailyTotal, "findFirst", async () => ({ date: row.date }));
+  intercept(context, db.gscReportCoverage, "findFirst", async () => ({ startDate: new Date("2026-06-15"), endDate: row.date }));
   intercept(context, db.gscDailyTotal, "findMany", async (input: { where: unknown; orderBy: unknown }) => {
     assert.deepEqual(input.where, expectedWhere);
     assert.deepEqual(input.orderBy, { date: "asc" });
@@ -264,7 +264,7 @@ for (const useV2 of [true, false]) {
     const pages = useV2 ? db.gscPageDaily : db.page;
     const storedScope = useV2 ? { siteId: "site-a", property: "sc-domain:example.com", searchType: "web", syncRun: { property: "sc-domain:example.com" } } : { siteId: "site-a" };
     const oldDate = new Date("2024-01-01");
-    if (useV2) intercept(context, db.gscDailyTotal, "findFirst", async () => ({ date: row.date }));
+    if (useV2) intercept(context, db.gscReportCoverage, "findFirst", async () => ({ startDate: new Date("2026-06-15"), endDate: row.date }));
     intercept(context, queries, "findFirst", async (input: { where: { query?: string } }) => {
       if (!input.where.query) return { date: row.date };
       assert.deepEqual(input.where, { ...storedScope, query: "old" });

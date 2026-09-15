@@ -88,6 +88,33 @@ async function fenceCanonicalWrite(tx: Prisma.TransactionClient, siteId: string,
   }
 }
 
+async function recordReportCoverage(tx: Prisma.TransactionClient, input: ReplaceGscReportInput): Promise<void> {
+  const key = { siteId: input.siteId, property: input.property, searchType: input.searchType, reportKind: input.kind };
+  const previous = await tx.gscReportCoverage.findFirst({
+    where: { ...key, syncRun: { property: input.property } },
+    select: { startDate: true, endDate: true },
+  });
+  let startDate = toDbDate(input.range.startDate);
+  let endDate = toDbDate(input.range.endDate);
+  if (startDate > endDate) throw new GscSyncError("PROVIDER_ERROR", "A report range is invalid.");
+  if (previous) {
+    const adjacent = startDate.getTime() <= previous.endDate.getTime() + 86_400_000 &&
+      endDate.getTime() >= previous.startDate.getTime() - 86_400_000;
+    if (adjacent) {
+      if (previous.startDate < startDate) startDate = previous.startDate;
+      if (previous.endDate > endDate) endDate = previous.endDate;
+    } else if (endDate < previous.endDate) {
+      // Keep the newer continuous interval and its originating run.
+      return;
+    }
+  }
+  const data = { startDate, endDate, syncRunId: input.runId };
+  await tx.gscReportCoverage.upsert({
+    where: { siteId_property_searchType_reportKind: key },
+    create: { ...key, ...data }, update: data,
+  });
+}
+
 export const prismaGscStore: GscStore = {
   async resolveOwnedTarget(userId, siteId) {
     const site = await db.site.findUnique({ where: { id: siteId }, select: {
@@ -175,6 +202,7 @@ export const prismaGscStore: GscStore = {
             if (rows.length) await tx.gscCountryDaily.createMany({ data: rows.map((row, i) => ({ ...row, country: dimension(input.rows[i].country) })) });
             break;
         }
+        await recordReportCoverage(tx, input);
       }
       const oldCounts = run.reportCounts && typeof run.reportCounts === "object" && !Array.isArray(run.reportCounts) ? run.reportCounts : {};
       const oldStates = run.reportStates && typeof run.reportStates === "object" && !Array.isArray(run.reportStates) ? run.reportStates : {};

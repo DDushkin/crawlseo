@@ -108,6 +108,7 @@ model Site {
   gscCountryDaily   GscCountryDaily[]
   gscSyncRuns       GscSyncRun[]
   gscSyncLease      GscSyncLease?
+  gscReportCoverage GscReportCoverage[]
 
   @@unique([userId, domain])
 }
@@ -284,8 +285,24 @@ model GscSyncRun {
   queryPageRows  GscQueryPageDaily[]
   deviceRows     GscDeviceDaily[]
   countryRows    GscCountryDaily[]
+  reportCoverage GscReportCoverage[]
 
   @@index([siteId, property, startedAt])
+}
+
+model GscReportCoverage {
+  siteId     String
+  property   String
+  searchType String   @default("web")
+  reportKind String
+  startDate  DateTime @db.Date
+  endDate    DateTime @db.Date
+  syncRunId  String
+  updatedAt  DateTime @updatedAt
+  site       Site       @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  syncRun    GscSyncRun @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+
+  @@id([siteId, property, searchType, reportKind])
 }
 
 model GscSyncLease {

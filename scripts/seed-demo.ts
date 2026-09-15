@@ -12,6 +12,7 @@
 
 import { PrismaClient, type IssueType, type IssueSeverity } from "@prisma/client";
 import { pacificDateLabel, shiftDateLabel, toDbDate } from "../lib/gsc/date-range";
+import { GSC_REPORT_KINDS } from "../lib/gsc/types";
 const db = new PrismaClient();
 
 const DEMO_DOMAIN = "acme.com";
@@ -328,6 +329,10 @@ async function seed() {
     await db.gscDeviceDaily.createMany({ data: deviceRows });
     await db.gscCountryDaily.createMany({ data: countryRows });
   }
+  await db.gscReportCoverage.createMany({ data: GSC_REPORT_KINDS.map((reportKind) => ({
+    siteId: site.id, property: DEMO_GSC, searchType: "web", reportKind, syncRunId: run.id,
+    startDate: toDbDate(shiftDateLabel(finalizedThrough, -27)), endDate: toDbDate(finalizedThrough),
+  })) });
   await db.site.update({
     where: { id: site.id },
     data: { gscDataVersion: 2, gscSearchType: "web", lastGscSyncAt: seedTime },

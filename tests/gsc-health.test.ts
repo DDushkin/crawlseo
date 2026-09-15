@@ -61,7 +61,7 @@ test("missing property totals and malformed reconciliation have explicit empty s
   assert.deepEqual(health.warnings, []);
 });
 
-test("health loader scopes selected fields, successful run, latest run and date bounds to site/search type", async (context) => {
+test("health loader scopes runs and daily-total coverage to site, property and search type", async (context) => {
   assert.equal(typeof healthModule.getGscDataHealth, "function");
   function intercept(target: object, method: string, implementation: (...args: never[]) => unknown) {
     const original = Object.getOwnPropertyDescriptor(target, method);
@@ -81,9 +81,9 @@ test("health loader scopes selected fields, successful run, latest run and date 
     if (args.where.status) assert.deepEqual(args.where.status, { in: ["COMPLETED", "COMPLETED_WITH_WARNINGS"] });
     return complete;
   });
-  intercept(db.gscDailyTotal, "aggregate", async (args: unknown) => {
-    assert.deepEqual(args, { where: { siteId: "site-a", property: "sc-domain:example.com", searchType: "image", syncRun: { property: "sc-domain:example.com" } }, _min: { date: true }, _max: { date: true } });
-    return { _min: { date: new Date("2026-08-14") }, _max: { date: new Date("2026-09-10") } };
+  intercept(db.gscReportCoverage, "findFirst", async (args: unknown) => {
+    assert.deepEqual(args, { where: { siteId: "site-a", property: "sc-domain:example.com", searchType: "image", syncRun: { property: "sc-domain:example.com" }, reportKind: "dailyTotal" }, select: { startDate: true, endDate: true } });
+    return { startDate: new Date("2026-08-14"), endDate: new Date("2026-09-10") };
   });
   const health = await healthModule.getGscDataHealth("site-a");
   assert.equal(health.searchType, "image");

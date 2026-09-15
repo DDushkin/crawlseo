@@ -338,12 +338,16 @@ test("Prisma canonical replacement and readiness atomically fence and renew the 
   });
   intercept(context, db.gscSyncRun, "findFirst", async () => ({ reportCounts: {}, reportStates: {} }));
   intercept(context, db.gscSyncRun, "update", async () => { events.push("run"); return {}; });
+  intercept(context, db.gscReportCoverage, "findFirst", async () => null);
+  intercept(context, db.gscReportCoverage, "upsert", async () => {
+    assert.equal(transactionActive, true); events.push("coverage"); return {};
+  });
   intercept(context, db.gscDailyTotal, "deleteMany", async () => { events.push("delete"); return { count: 1 }; });
   intercept(context, db.gscDailyTotal, "createMany", async () => { events.push("insert"); return { count: 1 }; });
   intercept(context, db.site, "update", async () => { events.push("ready"); return {}; });
   const input = { ...report("dailyTotal"), siteId: "site-a", property: target.property, runId: "run-a", searchType: "web" as const, range: { startDate: "2026-09-06", endDate: "2026-09-12" }, rows: report("dailyTotal").rows.map((row) => ({ ...row, siteId: "site-a" })), lease };
   await prismaGscStore.replaceReport(input);
-  assert.deepEqual(events, ["begin", "renew", "delete", "insert", "run", "commit"]);
+  assert.deepEqual(events, ["begin", "renew", "delete", "insert", "coverage", "run", "commit"]);
   events.length = 0;
   await prismaGscStore.markSiteReady("site-a", now, lease, target.property);
   assert.deepEqual(events, ["begin", "renew", "ready", "commit"]);
@@ -376,6 +380,12 @@ test("Prisma replacement confines all six tables to the target scope and one tra
   });
   intercept(context, db.gscSyncRun, "update", async (input: unknown) => { updates.push(input); return {}; });
   intercept(context, db.gscSyncLease, "updateMany", async () => ({ count: 1 }));
+  intercept(context, db.gscReportCoverage, "findFirst", async () => null);
+  intercept(context, db.gscReportCoverage, "upsert", async ({ create }: { create: { siteId: string; property: string; syncRunId: string } }) => {
+    assert.equal(transactionActive, true);
+    assert.equal(create.siteId, "site-a"); assert.equal(create.property, target.property); assert.equal(create.syncRunId, "run-a");
+    return create;
+  });
   for (const delegate of [db.gscDailyTotal, db.gscQueryDaily, db.gscPageDaily, db.gscQueryPageDaily, db.gscDeviceDaily, db.gscCountryDaily]) {
     intercept(context, delegate, "deleteMany", async (input: unknown) => {
       assert.equal(transactionActive, true); deletes.push(input); return { count: 1 };
