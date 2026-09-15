@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 type SeedRow = { siteId: string; searchType: string; date: Date; clicks: number; impressions: number; ctr: number; position: number; query?: string; url?: string; device?: string; country?: string };
 
 test("demo seed writes six coherent V2 grains, keeps legacy data and marks only its completed site ready", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-09-15T01:00:00.000Z") });
   const require = createRequire(import.meta.url);
   const writes = new Map<string, SeedRow[]>();
   const markers: unknown[] = [];
@@ -37,6 +38,10 @@ test("demo seed writes six coherent V2 grains, keeps legacy data and marks only 
 
   const totals = writes.get("gscDailyTotal") ?? [];
   assert.equal(totals.length, 28);
+  // At 01:00 UTC the Pacific calendar is still September 14: minus three days is September 11.
+  const labels = totals.map((row) => row.date.toISOString().slice(0, 10)).sort();
+  assert.equal(labels.at(-1), "2026-09-11");
+  assert.equal(labels[0], "2026-08-15");
   assert.equal(writes.get("keyword")?.length, 1400);
   assert.equal(writes.get("page")?.length, 560);
   assert.equal(new Set(totals.map((row) => row.date.toISOString())).size, 28);
@@ -76,6 +81,7 @@ test("demo seed writes six coherent V2 grains, keeps legacy data and marks only 
   assert.equal(updates[0].data.gscDataVersion, 2);
   assert.equal(updates[0].data.gscSearchType, "web");
   assert.ok(updates[0].data.lastGscSyncAt instanceof Date);
+  assert.equal(updates[0].data.lastGscSyncAt.toISOString(), "2026-09-15T01:00:00.000Z");
   for (const table of ["gscDailyTotal", "gscQueryDaily", "gscPageDaily", "gscQueryPageDaily", "gscDeviceDaily", "gscCountryDaily"]) {
     assert.ok(events.lastIndexOf(table) < events.indexOf("ready"));
   }

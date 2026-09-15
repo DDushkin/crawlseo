@@ -11,6 +11,7 @@
  */
 
 import { PrismaClient, type IssueType, type IssueSeverity } from "@prisma/client";
+import { pacificDateLabel, shiftDateLabel, toDbDate } from "../lib/gsc/date-range";
 const db = new PrismaClient();
 
 const DEMO_DOMAIN = "acme.com";
@@ -268,10 +269,9 @@ async function seed() {
 
   // Independent property totals drive all V2 demo dimensions. Legacy fixtures
   // above remain available for demonstrating the emergency rollback path.
+  const finalizedThrough = shiftDateLabel(pacificDateLabel(seedTime), -3);
   for (let day = 0; day < 28; day++) {
-    const date = new Date(seedTime);
-    date.setUTCHours(0, 0, 0, 0);
-    date.setUTCDate(date.getUTCDate() - day - 3);
+    const date = toDbDate(shiftDateLabel(finalizedThrough, -day));
     const scope = { siteId: site.id, searchType: "web", date };
     const clicks = rand(1000, 2000);
     const impressions = rand(18000, 30000);
