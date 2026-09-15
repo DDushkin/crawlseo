@@ -48,3 +48,6 @@ docs/launch/
 
 # Local SEO audit cache
 .seo-cache/
+
+# Local isolated implementation worktrees
+.worktrees/
