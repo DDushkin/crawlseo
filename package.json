@@ -26,6 +26,8 @@
     "lint": "eslint",
     "test": "tsx --test tests/*.test.ts",
     "mcp": "npx tsx mcp/server.ts",
+    "gsc:backfill": "tsx scripts/backfill-gsc.ts",
+    "gsc:verify": "tsx scripts/verify-gsc.ts",
     "seed:demo": "npx tsx scripts/seed-demo.ts",
     "seed:demo:clean": "npx tsx scripts/seed-demo.ts --clean"
   },
