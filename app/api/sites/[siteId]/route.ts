@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getGscStoredCounts } from "@/lib/seo-metrics";
 
 export async function GET(
   req: Request,
@@ -25,8 +26,6 @@ export async function GET(
         userId: true,
         _count: {
           select: {
-            keywords: true,
-            pages: true,
             crawls: true,
             vitals: true,
           },
@@ -44,9 +43,13 @@ export async function GET(
     }
 
     // Remove userId from response
-    const { userId, ...siteData } = site;
+    const siteData = {
+      id: site.id, domain: site.domain, gscProperty: site.gscProperty,
+      createdAt: site.createdAt, updatedAt: site.updatedAt, _count: site._count,
+    };
+    const counts = await getGscStoredCounts(siteId);
 
-    return Response.json(siteData);
+    return Response.json({ ...siteData, _count: { ...siteData._count, keywords: counts.queries, pages: counts.pages } });
   } catch (error) {
     console.error("Error fetching site:", error);
 

@@ -29,9 +29,9 @@ export async function evaluateAlertsForUser(userId: string): Promise<AlertFire[]
 
     try {
       if (alert.type === "TRAFFIC_DROP") {
-        const { deltas, current } = await getSitePeriodMetrics(alert.siteId, 7);
+        const { deltas, current, previous } = await getSitePeriodMetrics(alert.siteId, 7);
         const threshold = config.thresholdPct ?? -20;
-        if (deltas.clicks <= threshold && current.clicks >= 5) {
+        if (current.avgCtr !== null && previous.avgCtr !== null && deltas.clicks <= threshold && current.clicks >= 5) {
           fires.push({
             alertId: alert.id,
             type: alert.type,

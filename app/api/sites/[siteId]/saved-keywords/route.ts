@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getGscLatestQueryMetric } from "@/lib/seo-metrics";
 
 export async function GET(
   _req: Request,
@@ -28,25 +29,21 @@ export async function GET(
     // Fetch latest rank data for each saved keyword
     const withRankData = await Promise.all(
       savedKeywords.map(async (sk) => {
-        const latestKeyword = await db.keyword.findFirst({
-          where: { siteId, query: sk.query },
-          orderBy: { date: "desc" },
-          select: {
-            clicks: true,
-            impressions: true,
-            ctr: true,
-            position: true,
-            page: true,
-            date: true,
-          },
-        });
+        const latestKeyword = await getGscLatestQueryMetric(siteId, sk.query);
 
         return {
           id: sk.id,
           query: sk.query,
           notes: sk.notes,
           createdAt: sk.createdAt,
-          latestRank: latestKeyword,
+          latestRank: latestKeyword ? {
+            clicks: latestKeyword.clicks,
+            impressions: latestKeyword.impressions,
+            ctr: latestKeyword.ctr,
+            position: latestKeyword.position,
+            page: latestKeyword.page,
+            date: latestKeyword.date,
+          } : null,
         };
       })
     );

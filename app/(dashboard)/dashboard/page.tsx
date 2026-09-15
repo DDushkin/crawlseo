@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getSitePeriodMetrics, formatCompact } from "@/lib/seo-metrics";
+import { getSitePeriodMetrics, formatCompact, hasGscData } from "@/lib/seo-metrics";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AddSiteModal } from "@/components/sites/add-site-modal";
@@ -19,15 +19,19 @@ export default async function DashboardPage() {
       id: true,
       domain: true,
       gscProperty: true,
-      _count: { select: { keywords: true, crawls: true } },
+      _count: { select: { crawls: true } },
     },
     orderBy: { domain: "asc" },
   });
 
+  const readiness = new Map(await Promise.all(sites.map(async (site) =>
+    [site.id, await hasGscData(site.id)] as const
+  )));
+
   // Onboarding state
   const hasSites = sites.length > 0;
   const hasGscConnected = sites.some((s) => s.gscProperty);
-  const hasSyncedData = sites.some((s) => s._count.keywords > 0);
+  const hasSyncedData = sites.some((s) => readiness.get(s.id));
   const hasCrawled = sites.some((s) => s._count.crawls > 0);
   const firstSiteId = sites[0]?.id;
 
@@ -59,7 +63,7 @@ export default async function DashboardPage() {
 
   const siteCards = await Promise.all(
     sites.map(async (site) => {
-      if (site._count.keywords === 0) {
+      if (!readiness.get(site.id)) {
         return {
           site,
           metrics: null as Awaited<ReturnType<typeof getSitePeriodMetrics>> | null,

@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { getAllOpportunities } from "@/lib/seo-opportunities";
+import { hasGscData } from "@/lib/seo-metrics";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CsvExportButton } from "@/components/ui/csv-export-button";
@@ -19,11 +20,11 @@ export default async function OpportunitiesPage({ params }: Props) {
 
   const site = await db.site.findUnique({
     where: { id: siteId },
-    select: { userId: true, domain: true, _count: { select: { keywords: true } } },
+    select: { userId: true, domain: true },
   });
   if (!site || site.userId !== session?.user?.id) redirect("/sites");
 
-  if (site._count.keywords === 0) {
+  if (!(await hasGscData(siteId))) {
     return (
       <div>
         <PageHeader
@@ -194,7 +195,7 @@ export default async function OpportunitiesPage({ params }: Props) {
                       <li key={p.url} className="flex justify-between gap-2">
                         <span className="truncate">{p.url}</span>
                         <span className="font-data shrink-0">
-                          pos {p.position.toFixed(1)} · {p.clicks} clk
+                          pos {p.position === null ? "—" : p.position.toFixed(1)} · {p.clicks} clk
                         </span>
                       </li>
                     ))}

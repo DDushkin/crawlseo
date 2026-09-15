@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AddSiteModal } from "@/components/sites/add-site-modal";
 import { SyncButton } from "@/components/sites/sync-button";
-import { formatCompact } from "@/lib/seo-metrics";
+import { formatCompact, getGscStoredCounts } from "@/lib/seo-metrics";
 
 export default async function SitesPage() {
   const session = await auth();
@@ -19,14 +19,16 @@ export default async function SitesPage() {
       createdAt: true,
       _count: {
         select: {
-          keywords: true,
-          pages: true,
           crawls: true,
         },
       },
     },
     orderBy: { createdAt: "desc" },
   });
+
+  const counts = new Map(await Promise.all(sites.map(async (site) =>
+    [site.id, await getGscStoredCounts(site.id)] as const
+  )));
 
   return (
     <div>
@@ -62,11 +64,11 @@ export default async function SitesPage() {
                 <div className="mt-5 grid grid-cols-3 gap-2 border-t border-border/50 pt-4">
                   <MiniStat
                     label="Keyword rows"
-                    value={formatCompact(site._count.keywords)}
+                    value={formatCompact(counts.get(site.id)!.queries)}
                   />
                   <MiniStat
                     label="Page rows"
-                    value={formatCompact(site._count.pages)}
+                    value={formatCompact(counts.get(site.id)!.pages)}
                   />
                   <MiniStat
                     label="Crawls"

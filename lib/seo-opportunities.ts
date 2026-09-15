@@ -1,17 +1,8 @@
-import { db } from "@/lib/db";
-import { getDateRange } from "@/lib/date-utils";
-import { getTopKeywords, getTopPages, type KeywordRow } from "@/lib/seo-metrics";
+import { previousDateRange } from "@/lib/gsc/date-range";
+import { getTopKeywords, getTopPages, getStoredGscRange, getGscPageMetricsForRange, getGscQueryPageRows, type KeywordRow } from "@/lib/seo-metrics";
 
 function hasKnownMetrics(row: KeywordRow): row is KeywordRow & { position: number; ctr: number } {
   return row.position !== null && row.ctr !== null;
-}
-
-function range(days: number) {
-  const { start, end } = getDateRange(days);
-  return {
-    start: new Date(`${start}T00:00:00.000Z`),
-    end: new Date(`${end}T23:59:59.999Z`),
-  };
 }
 
 /** Expected CTR curve (rough industry averages by position). */
@@ -68,23 +59,13 @@ export async function getLowCtrOpportunities(siteId: string, limit = 25) {
 }
 
 export async function getContentDecay(siteId: string, limit = 20) {
-  const current = range(28);
-  const previous = {
-    start: new Date(current.start),
-    end: new Date(current.start),
-  };
-  previous.start.setUTCDate(previous.start.getUTCDate() - 28);
-  previous.end = new Date(current.start.getTime() - 1);
+  const current = await getStoredGscRange(siteId, 28);
+  if (!current) return [];
+  const previous = previousDateRange(current);
 
   const [currPages, prevPages] = await Promise.all([
-    db.page.findMany({
-      where: { siteId, date: { gte: current.start, lte: current.end } },
-      select: { url: true, clicks: true, impressions: true },
-    }),
-    db.page.findMany({
-      where: { siteId, date: { gte: previous.start, lte: previous.end } },
-      select: { url: true, clicks: true },
-    }),
+    getGscPageMetricsForRange(siteId, current),
+    getGscPageMetricsForRange(siteId, previous),
   ]);
 
   const curr = new Map<string, number>();
@@ -112,49 +93,42 @@ export async function getContentDecay(siteId: string, limit = 20) {
 }
 
 export async function getCannibalization(siteId: string, limit = 20) {
-  const r = range(28);
-  const rows = await db.keyword.findMany({
-    where: {
-      siteId,
-      date: { gte: r.start, lte: r.end },
-      page: { not: null },
-    },
-    select: {
-      query: true,
-      page: true,
-      clicks: true,
-      impressions: true,
-      position: true,
-    },
-  });
+  const r = await getStoredGscRange(siteId, 28);
+  if (!r) return [];
+  const rows = await getGscQueryPageRows(siteId, r);
 
   type Agg = {
     page: string;
     clicks: number;
     impressions: number;
     weightedPos: number;
+    positionWeight: number;
   };
   const byQuery = new Map<string, Map<string, Agg>>();
 
   for (const row of rows) {
-    if (!row.page) continue;
+    if (!row.url) continue;
     if (!byQuery.has(row.query)) byQuery.set(row.query, new Map());
     const pages = byQuery.get(row.query)!;
-    const cur = pages.get(row.page) || {
-      page: row.page,
+    const cur = pages.get(row.url) || {
+      page: row.url,
       clicks: 0,
       impressions: 0,
       weightedPos: 0,
+      positionWeight: 0,
     };
     cur.clicks += row.clicks;
     cur.impressions += row.impressions;
-    cur.weightedPos += row.position * Math.max(row.impressions, 1);
-    pages.set(row.page, cur);
+    if (row.position !== null && row.impressions > 0) {
+      cur.weightedPos += row.position * row.impressions;
+      cur.positionWeight += row.impressions;
+    }
+    pages.set(row.url, cur);
   }
 
   const result: {
     query: string;
-    pages: { url: string; clicks: number; impressions: number; position: number }[];
+    pages: { url: string; clicks: number; impressions: number; position: number | null }[];
   }[] = [];
 
   for (const [query, pages] of byQuery) {
@@ -164,7 +138,7 @@ export async function getCannibalization(siteId: string, limit = 20) {
         url: p.page,
         clicks: p.clicks,
         impressions: p.impressions,
-        position: p.weightedPos / Math.max(p.impressions, 1),
+        position: p.positionWeight > 0 ? p.weightedPos / p.positionWeight : null,
       }))
       .sort((a, b) => b.impressions - a.impressions);
     if (list[0].impressions < 20) continue;

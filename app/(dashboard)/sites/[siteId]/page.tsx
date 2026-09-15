@@ -15,6 +15,7 @@ import {
 } from "@/components/sites/action-buttons";
 import { CsvExportButton } from "@/components/ui/csv-export-button";
 import { getAllOpportunities } from "@/lib/seo-opportunities";
+import { hasGscData } from "@/lib/seo-metrics";
 
 interface SitePageProps {
   params: Promise<{ siteId: string }>;
@@ -30,7 +31,6 @@ export default async function SiteOverviewPage({ params }: SitePageProps) {
       userId: true,
       domain: true,
       gscProperty: true,
-      _count: { select: { keywords: true } },
     },
   });
 
@@ -50,8 +50,9 @@ export default async function SiteOverviewPage({ params }: SitePageProps) {
     select: { perfScore: true, lcp: true, url: true },
   });
 
+  const hasData = await hasGscData(siteId);
   const opportunities =
-    site._count.keywords > 0
+    hasData
       ? await getAllOpportunities(siteId)
       : null;
 
@@ -92,7 +93,7 @@ export default async function SiteOverviewPage({ params }: SitePageProps) {
         ))}
       </div>
 
-      {site._count.keywords === 0 ? (
+      {!hasData ? (
         <EmptyState
           icon="↻"
           title="Waiting for GSC data"

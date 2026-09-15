@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getGscQueryHistory } from "@/lib/seo-metrics";
 
 export async function GET(
   req: Request,
@@ -35,22 +36,9 @@ export async function GET(
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
 
-    // Fetch from both Keyword table and RankSnapshot in parallel
+    // Fetch GSC history and RankSnapshot in parallel.
     const [keywordRows, snapshots] = await Promise.all([
-      db.keyword.findMany({
-        where: {
-          siteId,
-          query,
-          date: { gte: startDate },
-        },
-        select: {
-          date: true,
-          position: true,
-          clicks: true,
-          impressions: true,
-        },
-        orderBy: { date: "asc" },
-      }),
+      getGscQueryHistory(siteId, query, days),
       db.rankSnapshot.findMany({
         where: {
           siteId,
@@ -70,7 +58,7 @@ export async function GET(
     // Merge data by date, preferring RankSnapshot when both exist
     const byDate = new Map<
       string,
-      { date: string; position: number; clicks: number; impressions: number }
+      { date: string; position: number | null; clicks: number; impressions: number }
     >();
 
     // Aggregate keyword rows by date (may have multiple per date for different devices/countries)
@@ -78,13 +66,16 @@ export async function GET(
       const dateStr = row.date.toISOString().split("T")[0];
       const existing = byDate.get(dateStr);
       if (existing) {
+        const impressions = existing.impressions + row.impressions;
+        if (existing.impressions === 0) {
+          existing.position = row.position;
+        } else if (row.impressions > 0) {
+          existing.position = existing.position !== null && row.position !== null
+            ? (existing.position * existing.impressions + row.position * row.impressions) / impressions
+            : null;
+        }
         existing.clicks += row.clicks;
-        existing.impressions += row.impressions;
-        // Use weighted average for position
-        existing.position =
-          (existing.position * (existing.impressions - row.impressions) +
-            row.position * row.impressions) /
-          existing.impressions;
+        existing.impressions = impressions;
       } else {
         byDate.set(dateStr, {
           date: dateStr,

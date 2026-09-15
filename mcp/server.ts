@@ -12,6 +12,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import type { Prisma, IssueSeverity } from "@prisma/client";
 
 import { db } from "../lib/db";
 import {
@@ -19,6 +20,7 @@ import {
   getTopKeywords,
   getTopPages,
   getDailyTraffic,
+  getGscStoredCounts,
 } from "../lib/seo-metrics";
 import { getAllOpportunities } from "../lib/seo-opportunities";
 import { runSiteCrawl } from "../lib/crawler/engine";
@@ -57,7 +59,7 @@ server.tool(
         domain: true,
         gscProperty: true,
         createdAt: true,
-        _count: { select: { crawls: true, keywords: true, pages: true } },
+        _count: { select: { crawls: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -66,13 +68,15 @@ server.tool(
       return { content: [{ type: "text", text: "No sites found." }] };
     }
 
-    const lines = sites.map(
-      (s) =>
-        `${s.domain}  (id: ${s.id})` +
+    const lines = await Promise.all(sites.map(
+      async (s) => {
+        const counts = await getGscStoredCounts(s.id);
+        return `${s.domain}  (id: ${s.id})` +
         `\n  GSC: ${s.gscProperty ?? "not connected"}` +
-        `  |  Crawls: ${s._count.crawls}  |  Keywords: ${s._count.keywords}  |  Pages: ${s._count.pages}` +
-        `\n  Created: ${s.createdAt.toISOString().slice(0, 10)}`
-    );
+        `  |  Crawls: ${s._count.crawls}  |  Keywords: ${counts.queries}  |  Pages: ${counts.pages}` +
+        `\n  Created: ${s.createdAt.toISOString().slice(0, 10)}`;
+      }
+    ));
 
     return {
       content: [{ type: "text", text: `${sites.length} site(s):\n\n${lines.join("\n\n")}` }],
@@ -290,9 +294,9 @@ server.tool(
     limit: z.number().optional().default(50).describe("Max issues to return (default 50)"),
   },
   async ({ crawlId, severity, limit }) => {
-    const where: any = { crawlId };
+    const where: Prisma.CrawlIssueWhereInput = { crawlId };
     if (severity) {
-      where.severity = severity.toUpperCase();
+      where.severity = severity.toUpperCase() as IssueSeverity;
     }
 
     const issues = await db.crawlIssue.findMany({

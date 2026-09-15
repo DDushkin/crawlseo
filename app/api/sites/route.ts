@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getGscStoredCounts } from "@/lib/seo-metrics";
 import { assertPublicDomain } from "@/lib/crawler/engine";
 import { ensureDefaultAlerts } from "@/lib/alerts/evaluate";
 import { syncGscSite } from "@/lib/gsc/sync-service";
@@ -23,7 +24,6 @@ export async function GET() {
         updatedAt: true,
         _count: {
           select: {
-            keywords: true,
             crawls: true,
           },
         },
@@ -31,7 +31,11 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    return Response.json(sites);
+    const withCounts = await Promise.all(sites.map(async (site) => {
+      const counts = await getGscStoredCounts(site.id);
+      return { ...site, _count: { ...site._count, keywords: counts.queries } };
+    }));
+    return Response.json(withCounts);
   } catch (error) {
     console.error("Error fetching sites:", error);
 

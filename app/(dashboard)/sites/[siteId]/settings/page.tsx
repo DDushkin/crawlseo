@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getGscStoredCounts } from "@/lib/seo-metrics";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { DeleteSiteButton } from "@/components/sites/delete-site-button";
@@ -22,8 +23,6 @@ export default async function SettingsPage({ params }: Props) {
       createdAt: true,
       _count: {
         select: {
-          keywords: true,
-          pages: true,
           crawls: true,
           vitals: true,
           alerts: true,
@@ -33,6 +32,7 @@ export default async function SettingsPage({ params }: Props) {
     },
   });
   if (!site || site.userId !== session?.user?.id) redirect("/sites");
+  const counts = await getGscStoredCounts(siteId);
 
   // Check API key status
   const apiKeys = await db.apiKey.findMany({
@@ -96,8 +96,8 @@ export default async function SettingsPage({ params }: Props) {
             Stored data
           </h3>
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <DataStat label="Keyword records" value={site._count.keywords} />
-            <DataStat label="Page records" value={site._count.pages} />
+            <DataStat label="Keyword records" value={counts.queries} />
+            <DataStat label="Page records" value={counts.pages} />
             <DataStat label="Crawls" value={site._count.crawls} />
             <DataStat label="Vitals reports" value={site._count.vitals} />
             <DataStat label="Alert rules" value={site._count.alerts} />

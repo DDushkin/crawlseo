@@ -10,7 +10,7 @@
  * at least once). To target a specific user pass --email=you@example.com.
  */
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type IssueType, type IssueSeverity } from "@prisma/client";
 const db = new PrismaClient();
 
 const DEMO_DOMAIN = "acme.com";
@@ -34,6 +34,20 @@ function daysAgo(n: number) {
   d.setDate(d.getDate() - n);
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+/** Integer partitions conserve totals, including rounding remainders. */
+function partition(total: number, weights: number[]) {
+  const weight = weights.reduce((sum, value) => sum + value, 0);
+  let cumulative = 0;
+  let allocated = 0;
+  return weights.map((value) => {
+    cumulative += value;
+    const next = Math.round(total * cumulative / weight);
+    const result = next - allocated;
+    allocated = next;
+    return result;
+  });
 }
 
 // -------------------------------------------------------------------------
@@ -124,8 +138,8 @@ const PAGES = [
 
 const CRAWL_ISSUES: {
   path: string;
-  type: string;
-  severity: string;
+  type: IssueType;
+  severity: IssueSeverity;
   message: string;
 }[] = [
   // CRITICAL (4)
@@ -166,6 +180,7 @@ async function clean() {
 }
 
 async function seed() {
+  const seedTime = new Date();
   const args = process.argv.slice(2);
   const emailFlag = args.find((a) => a.startsWith("--email="));
   const email = emailFlag?.split("=")[1];
@@ -251,6 +266,67 @@ async function seed() {
   }
   console.log(`Created ${pgCount} page records (${PAGES.length} pages × 28 days)`);
 
+  // Independent property totals drive all V2 demo dimensions. Legacy fixtures
+  // above remain available for demonstrating the emergency rollback path.
+  for (let day = 0; day < 28; day++) {
+    const date = new Date(seedTime);
+    date.setUTCHours(0, 0, 0, 0);
+    date.setUTCDate(date.getUTCDate() - day - 3);
+    const scope = { siteId: site.id, searchType: "web", date };
+    const clicks = rand(1000, 2000);
+    const impressions = rand(18000, 30000);
+    const position = randf(6, 12, 1);
+    const total = { ...scope, clicks, impressions, ctr: clicks / impressions, position };
+    await db.gscDailyTotal.create({ data: total });
+
+    const queryClicks = partition(clicks, KEYWORDS.map((kw) => kw.clickRange[0] + kw.clickRange[1]));
+    const queryNonClicks = partition(impressions - clicks, KEYWORDS.map((kw) => kw.impRange[0] + kw.impRange[1]));
+    const queryRows = KEYWORDS.map((kw, index) => {
+      const clicks = queryClicks[index];
+      const impressions = clicks + queryNonClicks[index];
+      return { ...scope, query: kw.q, clicks, impressions, ctr: clicks / impressions, position };
+    });
+    const queryPages = queryRows.flatMap((query, index) => {
+      const clicks = partition(query.clicks, [3, 1]);
+      const nonClicks = partition(query.impressions - query.clicks, [3, 1]);
+      return clicks.map((clicks, part) => {
+        const impressions = clicks + nonClicks[part];
+        return { ...query, url: `https://acme.com${PAGES[(index + part) % PAGES.length].path}`, clicks, impressions, ctr: clicks / impressions };
+      });
+    });
+    const pageRows = PAGES.map((page) => {
+      const url = `https://acme.com${page.path}`;
+      const mappings = queryPages.filter((row) => row.url === url);
+      const clicks = mappings.reduce((sum, row) => sum + row.clicks, 0);
+      const impressions = mappings.reduce((sum, row) => sum + row.impressions, 0);
+      return { ...scope, url, clicks, impressions, ctr: clicks / impressions, position };
+    });
+    const deviceClicks = partition(clicks, [2, 3]);
+    const deviceNonClicks = partition(impressions - clicks, [2, 3]);
+    const deviceRows = ["DESKTOP", "MOBILE"].map((device, index) => {
+      const clicks = deviceClicks[index];
+      const impressions = clicks + deviceNonClicks[index];
+      return { ...scope, device, clicks, impressions, ctr: clicks / impressions, position };
+    });
+    const countryClicks = partition(clicks, [4, 1]);
+    const countryNonClicks = partition(impressions - clicks, [4, 1]);
+    const countryRows = ["USA", "GBR"].map((country, index) => {
+      const clicks = countryClicks[index];
+      const impressions = clicks + countryNonClicks[index];
+      return { ...scope, country, clicks, impressions, ctr: clicks / impressions, position };
+    });
+    await db.gscQueryDaily.createMany({ data: queryRows });
+    await db.gscPageDaily.createMany({ data: pageRows });
+    await db.gscQueryPageDaily.createMany({ data: queryPages });
+    await db.gscDeviceDaily.createMany({ data: deviceRows });
+    await db.gscCountryDaily.createMany({ data: countryRows });
+  }
+  await db.site.update({
+    where: { id: site.id },
+    data: { gscDataVersion: 2, gscSearchType: "web", lastGscSyncAt: seedTime },
+  });
+  console.log("Created 28 days across all six V2 GSC reports");
+
   // 4. Saved keywords
   const savedQueries = [
     { q: "best crm for startups", notes: "High intent — target with comparison page" },
@@ -332,8 +408,8 @@ async function seed() {
       data: {
         crawlId: crawl.id,
         url: `https://acme.com${issue.path}`,
-        type: issue.type as any,
-        severity: issue.severity as any,
+        type: issue.type,
+        severity: issue.severity,
         message: issue.message,
       },
     });
