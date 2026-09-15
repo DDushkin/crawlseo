@@ -150,6 +150,7 @@ Lease acquisition and renewal are atomic. An expired lease may be reclaimed. Eve
 ### 4.9 `Site` additions
 
 - `gscSearchType`, defaulting to Web.
+- `gscDataVersion`, defaulting to `1`; set to `2` only after a complete V2 backfill so cutover is site-specific.
 - `lastGscSyncAt` for the last successful complete or complete-with-warnings run.
 
 Do not place reporting timezone, location/language, or paid-provider configuration into this migration. GSC dates remain explicitly governed by Search Console's Pacific Time reporting calendar; broader reporting preferences belong to a later site-settings slice.
@@ -186,14 +187,14 @@ The UI displays the actual covered dates rather than only saying "Last 28 days."
 
 ## 7. Import transaction behavior
 
-Each report is fetched before replacing the corresponding covered rows. A report's write transaction:
+Each report is fetched completely before replacing the corresponding covered rows. A report's write transaction:
 
 1. Validates normalized rows and date coverage.
 2. Upserts by the table's full unique key.
 3. Removes stale rows only inside the successfully fetched report scope where necessary.
 4. Records row count and completeness on the run.
 
-A failed report does not erase its last known good rows. If some reports succeed and another fails, the run becomes `completed-with-warnings`; successful evidence remains usable while affected surfaces show the warning.
+A failed or truncated report does not erase its last known good rows and does not write partial rows into canonical metric tables. Its fetched row count and incomplete state remain recorded on the sync run for diagnosis. If some reports succeed and another fails, the run becomes `completed-with-warnings`; successful evidence remains usable while affected surfaces show the warning.
 
 Initial backfill covers 90 finalized days. Scheduled synchronization refreshes the latest finalized days with a configurable overlap, initially seven days, to absorb delayed corrections. Manual synchronization uses the same service and overlap rules unless an explicit backfill range is requested.
 
@@ -271,7 +272,7 @@ Rollback disables the new read path. It does not require reversing or deleting i
 - Rate limit or transient Google failure: bounded retry with jitter, then record a retryable failure.
 - Invalid property: fail before writes and show the selected property.
 - Empty valid result: store successful zero/empty coverage distinctly from failure.
-- Partial pagination: preserve imported rows, mark truncated/partial, and exclude incomplete breakdowns from confident recommendations.
+- Partial pagination: preserve the previous complete scope, record the fetched row count, mark the new attempt truncated/partial, and exclude that incomplete breakdown from confident recommendations.
 - Database failure: fail the report transaction and preserve the prior successful scope.
 - Stale lease: reclaim only after expiry and record the interrupted run.
 
