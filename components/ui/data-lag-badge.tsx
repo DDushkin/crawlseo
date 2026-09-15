@@ -1,20 +1,13 @@
-"use client";
+import type { GscDataHealth } from "@/lib/gsc/health";
+import { GscHealthStatus } from "@/components/sites/gsc-data-health";
 
-import { Info } from "lucide-react";
-
-export function DataLagBadge() {
-  // GSC data is typically delayed 2-3 days
-  const lagDate = new Date();
-  lagDate.setDate(lagDate.getDate() - 3);
-  const formatted = lagDate.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-
+export function DataLagBadge({ health }: { health?: GscDataHealth }) {
+  // Older call sites have no observed coverage to display.
+  if (!health) return null;
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
-      <Info className="size-3" />
-      <span>GSC data through ~{formatted}</span>
+    <div className="inline-flex flex-wrap items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
+      <GscHealthStatus health={health} />
+      <span>{health.endDate ? `Covered through ${health.endDate}` : "No covered dates"}</span>
     </div>
   );
 }

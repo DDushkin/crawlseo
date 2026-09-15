@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { TrafficResponse } from "@/lib/gsc/health";
 import {
   Area,
   AreaChart,
@@ -24,11 +25,12 @@ interface ChartData {
 
 function formatAxisDate(value: string) {
   const d = new Date(`${value}T00:00:00Z`);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-export function TrafficChart({ siteId, days = 90 }: TrafficChartProps) {
+export function TrafficChart({ siteId, days = 28 }: TrafficChartProps) {
   const [data, setData] = useState<ChartData[]>([]);
+  const [coverage, setCoverage] = useState<TrafficResponse["coverage"]>({ startDate: null, endDate: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,12 +42,12 @@ export function TrafficChart({ siteId, days = 90 }: TrafficChartProps) {
       setError(null);
       try {
         const res = await fetch(`/api/sites/${siteId}/traffic?days=${days}`);
-        if (!res.ok) throw new Error("Failed to load traffic");
-        const json = (await res.json()) as ChartData[];
-        if (!cancelled) setData(json);
+        if (!res.ok) throw new Error("Could not load traffic. Reload this page to try again.");
+        const json = (await res.json()) as TrafficResponse;
+        if (!cancelled) { setData(json.rows); setCoverage(json.coverage); }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load chart");
+          setError(err instanceof Error ? err.message : "Could not load traffic. Reload this page to try again.");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -100,7 +102,8 @@ export function TrafficChart({ siteId, days = 90 }: TrafficChartProps) {
             Search traffic
           </h3>
           <p className="text-atom-caption text-muted-foreground">
-            Daily clicks & impressions · last {days} days
+            Daily clicks & impressions · {coverage.startDate && coverage.endDate
+              ? `${coverage.startDate} – ${coverage.endDate}` : "No covered dates"}
           </p>
         </div>
         <div className="flex gap-4 text-atom-caption">

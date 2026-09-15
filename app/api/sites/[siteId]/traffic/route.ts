@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getDailyTraffic } from "@/lib/seo-metrics";
+import { toTrafficResponse } from "@/lib/gsc/health";
 
 export async function GET(
   _req: Request,
@@ -23,13 +24,14 @@ export async function GET(
     }
 
     const url = new URL(_req.url);
+    const requestedDays = Number(url.searchParams.get("days") || 28);
     const days = Math.min(
-      Math.max(Number(url.searchParams.get("days") || 90), 7),
+      Math.max(Number.isFinite(requestedDays) ? Math.trunc(requestedDays) : 28, 7),
       180
     );
 
     const data = await getDailyTraffic(siteId, days);
-    return Response.json(data);
+    return Response.json(toTrafficResponse(data));
   } catch (error) {
     console.error("Error fetching traffic:", error);
     return Response.json({ error: "Failed to load traffic" }, { status: 500 });

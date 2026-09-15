@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { AddSiteModal } from "@/components/sites/add-site-modal";
 import { OnboardingChecklist } from "@/components/dashboard/onboarding-checklist";
 import { DataLagBadge } from "@/components/ui/data-lag-badge";
+import { getGscDataHealth } from "@/lib/gsc/health";
 import { formatDeltaPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -63,17 +64,19 @@ export default async function DashboardPage() {
 
   const siteCards = await Promise.all(
     sites.map(async (site) => {
+      const health = await getGscDataHealth(site.id);
       if (!readiness.get(site.id)) {
         return {
           site,
+          health,
           metrics: null as Awaited<ReturnType<typeof getSitePeriodMetrics>> | null,
         };
       }
       try {
         const metrics = await getSitePeriodMetrics(site.id, 28);
-        return { site, metrics };
+        return { site, metrics, health };
       } catch {
-        return { site, metrics: null };
+        return { site, metrics: null, health };
       }
     })
   );
@@ -86,7 +89,6 @@ export default async function DashboardPage() {
         description={`${sites.length} site${sites.length === 1 ? "" : "s"} · last 28 days vs prior period`}
         actions={
           <div className="flex items-center gap-3">
-            <DataLagBadge />
             <AddSiteModal />
           </div>
         }
@@ -102,7 +104,7 @@ export default async function DashboardPage() {
       />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {siteCards.map(({ site, metrics }) => (
+        {siteCards.map(({ site, metrics, health }) => (
           <Link
             key={site.id}
             href={`/sites/${site.id}`}
@@ -114,7 +116,7 @@ export default async function DashboardPage() {
                 <h2 className="truncate font-heading text-lg font-semibold text-foreground">
                   {site.domain}
                 </h2>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                <p className="mt-0.5 text-xs text-muted-foreground wrap-anywhere">
                   {site.gscProperty}
                 </p>
               </div>
@@ -122,6 +124,8 @@ export default async function DashboardPage() {
                 →
               </span>
             </div>
+
+            <div className="mt-3"><DataLagBadge health={health} /></div>
 
             {!metrics ? (
               <div className="mt-6 rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-4 text-sm text-muted-foreground">

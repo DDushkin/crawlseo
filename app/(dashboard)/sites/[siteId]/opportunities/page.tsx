@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CsvExportButton } from "@/components/ui/csv-export-button";
 import { DataLagBadge } from "@/components/ui/data-lag-badge";
+import { getGscDataHealth } from "@/lib/gsc/health";
 import { PositionBadge, NumCell, CtrCell } from "@/components/ui/data-table";
 import { cn } from "@/lib/utils";
 
@@ -42,7 +43,7 @@ export default async function OpportunitiesPage({ params }: Props) {
     );
   }
 
-  const data = await getAllOpportunities(siteId);
+  const [data, health] = await Promise.all([getAllOpportunities(siteId), getGscDataHealth(siteId)]);
 
   return (
     <div>
@@ -52,7 +53,7 @@ export default async function OpportunitiesPage({ params }: Props) {
         description="Striking distance, low CTR, content decay, and keyword cannibalization"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <DataLagBadge />
+            <DataLagBadge health={health} />
             <CsvExportButton siteId={siteId} type="keywords" />
             <CsvExportButton siteId={siteId} type="pages" />
           </div>

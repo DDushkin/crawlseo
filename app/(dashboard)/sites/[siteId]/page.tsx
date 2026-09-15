@@ -8,7 +8,8 @@ import { TopKeywords } from "@/components/dashboard/top-keywords";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SyncButton } from "@/components/sites/sync-button";
-import { DataLagBadge } from "@/components/ui/data-lag-badge";
+import { GscDataHealthPanel } from "@/components/sites/gsc-data-health";
+import { getGscDataHealth } from "@/lib/gsc/health";
 import {
   CrawlButton,
   VitalsButton,
@@ -51,6 +52,7 @@ export default async function SiteOverviewPage({ params }: SitePageProps) {
   });
 
   const hasData = await hasGscData(siteId);
+  const health = await getGscDataHealth(siteId);
   const opportunities =
     hasData
       ? await getAllOpportunities(siteId)
@@ -61,16 +63,17 @@ export default async function SiteOverviewPage({ params }: SitePageProps) {
       <PageHeader
         eyebrow="Site"
         title={site.domain}
-        description={site.gscProperty || "Search Console property"}
+        description="Search performance and site health"
         actions={
           <div className="flex flex-wrap items-start gap-2">
-            <DataLagBadge />
             <SyncButton siteId={siteId} />
             <CrawlButton siteId={siteId} />
             <VitalsButton siteId={siteId} />
           </div>
         }
       />
+
+      <GscDataHealthPanel health={health} />
 
       <div className="mb-6 flex flex-wrap gap-2">
         {[
@@ -138,7 +141,7 @@ export default async function SiteOverviewPage({ params }: SitePageProps) {
           </div>
 
           <DashboardMetrics siteId={siteId} />
-          <TrafficChart siteId={siteId} />
+          <TrafficChart key={health.lastSuccessfulSync} siteId={siteId} days={28} />
           <TopKeywords siteId={siteId} />
 
           <div className="flex flex-wrap gap-2">

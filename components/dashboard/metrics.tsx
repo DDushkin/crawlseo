@@ -52,6 +52,9 @@ function MetricCard({
 
 export async function DashboardMetrics({ siteId, days = 28 }: MetricsProps) {
   const { current, deltas } = await getSitePeriodMetrics(siteId, days);
+  const periodHint = current.startDate && current.endDate
+    ? `${current.startDate} – ${current.endDate} vs prior period`
+    : "No covered dates";
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -60,14 +63,14 @@ export async function DashboardMetrics({ siteId, days = 28 }: MetricsProps) {
         value={formatCompact(current.clicks)}
         delta={deltas.clicks}
         deltaLabel={formatDeltaPercent(deltas.clicks)}
-        hint={`Last ${days} days vs prior`}
+        hint={periodHint}
       />
       <MetricCard
         label="Impressions"
         value={formatCompact(current.impressions)}
         delta={deltas.impressions}
         deltaLabel={formatDeltaPercent(deltas.impressions)}
-        hint={`Last ${days} days vs prior`}
+        hint={periodHint}
       />
       <MetricCard
         label="Avg position"
