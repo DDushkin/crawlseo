@@ -70,6 +70,45 @@ test("marks the report truncated at the application safety cap", async () => {
   assert.equal(result.pagesFetched, 1);
 });
 
+test("bounds accepted rows when a page is larger than a smaller safety cap", async () => {
+  const result = await paginateGscReport(
+    { kind: "dailyTotal", rowLimit: 3, maxRows: 1 },
+    async () => ({
+      rows: [
+        { keys: ["2026-09-10"], clicks: 1, impressions: 2, ctr: 0.5, position: 3 },
+        { keys: ["2026-09-11"], clicks: 2, impressions: 4, ctr: 0.5, position: 4 },
+      ],
+    })
+  );
+
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].date, "2026-09-10");
+  assert.equal(result.complete, false);
+  assert.equal(result.truncatedAt, 1);
+});
+
+test("bounds accepted rows when the safety cap is not divisible by page size", async () => {
+  const starts: number[] = [];
+  const result = await paginateGscReport(
+    { kind: "dailyTotal", rowLimit: 3, maxRows: 4 },
+    async (startRow) => {
+      starts.push(startRow);
+      return {
+        rows: [
+          { keys: ["2026-09-10"], clicks: 1, impressions: 2, ctr: 0.5, position: 3 },
+          { keys: ["2026-09-11"], clicks: 2, impressions: 4, ctr: 0.5, position: 4 },
+          { keys: ["2026-09-12"], clicks: 3, impressions: 6, ctr: 0.5, position: 5 },
+        ],
+      };
+    }
+  );
+
+  assert.deepEqual(starts, [0, 3]);
+  assert.equal(result.rows.length, 4);
+  assert.equal(result.complete, false);
+  assert.equal(result.truncatedAt, 4);
+});
+
 test("emits an explicit Search Analytics payload", async (t) => {
   const originalFetch = globalThis.fetch;
   let requestedUrl = "";
@@ -138,6 +177,36 @@ test("surfaces sanitized Search Analytics provider failures", async (t) => {
       assert.equal(error.status, 403);
       assert.equal(error.code, 403);
       assert.equal(error.message.includes("secret provider detail"), false);
+      return true;
+    }
+  );
+});
+
+test("drops malformed provider error codes", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: { code: "provider detail\nwith control characters" } }), {
+      status: 400,
+    });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  await assert.rejects(
+    querySearchAnalyticsPage("access-token", {
+      siteUrl: "https://example.com/",
+      range: { startDate: "2026-09-01", endDate: "2026-09-10" },
+      dimensions: ["date"],
+      type: "web",
+      dataState: "final",
+      rowLimit: 1,
+      startRow: 0,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof GscApiError);
+      assert.equal(error.code, null);
+      assert.equal(error.message.includes("provider detail"), false);
+      assert.equal(error.message.includes("\n"), false);
       return true;
     }
   );

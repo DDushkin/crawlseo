@@ -13,6 +13,14 @@ import { getAccessToken } from "./google-auth";
 const GSC_API_BASE = "https://www.googleapis.com/webmasters/v3";
 const DEFAULT_ROW_LIMIT = 25_000;
 const DEFAULT_MAX_ROWS = 250_000;
+const GSC_SYMBOLIC_ERROR_CODES = new Set([
+  "AUTHENTICATION_REQUIRED",
+  "INVALID_ARGUMENT",
+  "NOT_FOUND",
+  "PERMISSION_DENIED",
+  "RESOURCE_EXHAUSTED",
+  "UNAUTHENTICATED",
+]);
 
 interface GSCProperty {
   siteUrl: string;
@@ -125,6 +133,12 @@ function normalizeRow(kind: GscReportKind, row: SearchAnalyticsRow): GscMetricRo
   };
 }
 
+function sanitizeGscErrorCode(code: unknown): number | string | null {
+  if (typeof code === "number" && Number.isFinite(code)) return code;
+  if (typeof code === "string" && GSC_SYMBOLIC_ERROR_CODES.has(code)) return code;
+  return null;
+}
+
 export async function paginateGscReport(
   { kind, rowLimit = DEFAULT_ROW_LIMIT, maxRows = DEFAULT_MAX_ROWS }: PaginateGscReportOptions,
   requestPage: (startRow: number) => Promise<SearchAnalyticsResponse>
@@ -137,7 +151,12 @@ export async function paginateGscReport(
     const response = await requestPage(startRow);
     pagesFetched += 1;
     const pageRows = response.rows ?? [];
-    rows.push(...pageRows.map((row) => normalizeRow(kind, row)));
+    const acceptedRows = pageRows.slice(0, maxRows - rows.length);
+    rows.push(...acceptedRows.map((row) => normalizeRow(kind, row)));
+
+    if (acceptedRows.length < pageRows.length) {
+      return { kind, rows, complete: false, pagesFetched, truncatedAt: maxRows };
+    }
 
     if (pageRows.length < rowLimit) {
       return { kind, rows, complete: true, pagesFetched, truncatedAt: null };
@@ -177,7 +196,7 @@ export async function querySearchAnalyticsPage(
     const body = (await response.json().catch(() => null)) as {
       error?: { code?: number | string };
     } | null;
-    throw new GscApiError(response.status, body?.error?.code ?? null);
+    throw new GscApiError(response.status, sanitizeGscErrorCode(body?.error?.code));
   }
 
   return response.json() as Promise<SearchAnalyticsResponse>;
