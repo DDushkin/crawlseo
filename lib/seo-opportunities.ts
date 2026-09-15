@@ -1,5 +1,5 @@
 import { previousDateRange } from "@/lib/gsc/date-range";
-import { getTopKeywords, getTopPages, getStoredGscRange, getGscPageMetricsForRange, getGscQueryPageRows, hasCompleteGscReportCoverage, type KeywordRow } from "@/lib/seo-metrics";
+import { getTopKeywords, getTopPages, getStoredGscRange, getGscTopQueries, getGscPageMetricsForRange, getGscQueryPageRows, hasCompleteGscReportCoverage, type KeywordRow } from "@/lib/seo-metrics";
 
 function hasKnownMetrics(row: KeywordRow): row is KeywordRow & { position: number; ctr: number } {
   return row.position !== null && row.ctr !== null;
@@ -29,7 +29,7 @@ export type Opportunity = {
 export async function getStrikingDistance(siteId: string, limit = 25) {
   const range = await getStoredGscRange(siteId, 28);
   if (!range || !await hasCompleteGscReportCoverage(siteId, "query", range)) return [];
-  const keywords = await getTopKeywords(siteId, 28, 200);
+  const keywords = await getGscTopQueries(siteId, range, 200);
   return keywords
     .filter(hasKnownMetrics)
     .filter((k) => k.position >= 4 && k.position <= 20 && k.impressions >= 20)
@@ -48,7 +48,7 @@ export async function getStrikingDistance(siteId: string, limit = 25) {
 export async function getLowCtrOpportunities(siteId: string, limit = 25) {
   const range = await getStoredGscRange(siteId, 28);
   if (!range || !await hasCompleteGscReportCoverage(siteId, "query", range)) return [];
-  const keywords = await getTopKeywords(siteId, 28, 200);
+  const keywords = await getGscTopQueries(siteId, range, 200);
   return keywords
     .filter(hasKnownMetrics)
     .filter((k) => k.impressions >= 50 && k.position <= 15)

@@ -119,3 +119,35 @@ Database behavior is verified through the Prisma query/transaction boundary and 
 ## No live actions
 
 No real database was connected to or modified. No migration, backfill, seed, deployment, paid API, or live GSC/provider-data command was executed. Provider and seed executions inside tests used controlled fakes. Network access during the successful build was limited to its public font asset downloads. Legacy data, user files, and the deferred Minor findings were not changed.
+
+## Refinement after scoped re-review
+
+The scoped re-review found that striking-distance and low-CTR detectors checked coverage for one range, then called `getTopKeywords`, which resolved the daily-total range again. If another synchronization advanced daily coverage in between, the detectors could read dates beyond the validated query coverage.
+
+Added two behavioral interleaving regressions before changing production. Each exercises real sync/store, facade, and detector code with the database boundary fixture. After the initial daily coverage read returns September 12, the fixture advances daily coverage to September 13 while query coverage remains through September 12. A query on August 16 makes the validated versus shifted period observable. The test checks the actual query bounds and recommendation, then confirms a subsequent independent range lookup returns August 17–September 13.
+
+RED command, using Node 22.16.0:
+
+```sh
+PATH=/Users/adushkin/.nvm/versions/node/v22.16.0/bin:$PATH node --import tsx --test --test-name-pattern='consumes its validated range' tests/gsc-report-coverage.test.ts
+```
+
+Result: **2 tests, 0 pass, 2 fail, exit 1**; 225.567625 ms. Both failed with the same incorrect consumed query bounds:
+
+```text
+actual:   2026-08-17 through 2026-09-13
+expected: 2026-08-16 through 2026-09-12
+```
+
+The only production change is in `lib/seo-opportunities.ts`: import the existing `getGscTopQueries` facade and use `getGscTopQueries(siteId, range, 200)` in both detectors after coverage validation. This carries the validated range directly into the read. No other production files changed.
+
+GREEN and final verification used the same Node 22.16.0 PATH:
+
+- `node --import tsx --test tests/gsc-report-coverage.test.ts tests/gsc-consumer-behavior.test.ts tests/gsc-read-model.test.ts`: **49 passed, 0 failed, 0 skipped**, exit 0; 443.033375 ms. Includes both interleavings, truncated-report gates, legacy rollback opportunities, and existing consumer checks.
+- `npm test`: **145 passed, 0 failed, 0 skipped**, exit 0; 641.997459 ms. The normal tsx script ran with its required local IPC permission.
+- `npx tsc --noEmit --incremental false`: exit 0, no errors.
+- `npx eslint lib/seo-opportunities.ts tests/gsc-report-coverage.test.ts`: exit 0, no warnings or errors.
+- Inert-placeholder `npm run build`, using the exact DB/OAuth/auth values above and public font asset access: exit 0; compiled in 2.7 seconds, TypeScript in 3.8 seconds, all 15 static pages generated, build finalized. Only the existing workspace-root warning remains.
+- `git diff --check`: exit 0.
+
+Self-review confirmed both detectors now consume exactly the checked interval and perform only one daily range lookup per detector invocation. The regression proves a second independent lookup sees the newer interval. This refinement changes only the detector module, its behavioral tests, and this report. The deferred Minor findings remain unchanged. No live DB, provider-data, migration, backfill, deployment, or seed action was performed. Recorded in a new follow-up commit without rewriting the earlier final-fix commit.

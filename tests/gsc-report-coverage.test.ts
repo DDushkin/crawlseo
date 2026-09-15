@@ -180,6 +180,36 @@ for (const truncated of ["page", "query", "queryPage"] as const) test(`ready-sit
   assert.equal((await getCannibalization("site")).length, truncated === "queryPage" ? 0 : 1);
 });
 
+for (const [name, detect] of [["striking distance", getStrikingDistance], ["low CTR", getLowCtrOpportunities]] as const) {
+  test(`${name} consumes its validated range when daily coverage advances before the query read`, async (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now });
+    const fixture = coverageDatabase(t);
+    await service("2026-09-12", { query: [{ ...metric, date: "2026-08-16", query: "validated-boundary" }] }).syncTarget(target, "CLI", "backfill");
+    const findCoverage = db.gscReportCoverage.findFirst.bind(db.gscReportCoverage);
+    let dailyLookups = 0;
+    intercept(t, db.gscReportCoverage, "findFirst", async (input: { where: { reportKind: string } }) => {
+      const coverage = await findCoverage(input);
+      if (input.where.reportKind !== "dailyTotal") return coverage;
+      dailyLookups++;
+      const snapshot = coverage ? { ...coverage } : null;
+      // Another sync commits newer daily totals while the query report stays complete only through September 12.
+      fixture.tables.coverage.find((row) => row.reportKind === "dailyTotal")!.endDate = new Date("2026-09-13");
+      return snapshot;
+    });
+    const findQueries = db.gscQueryDaily.findMany.bind(db.gscQueryDaily);
+    const consumed: unknown[] = [];
+    intercept(t, db.gscQueryDaily, "findMany", async (input: { where: { date: { gte: Date; lte: Date } } }) => {
+      consumed.push(input.where.date);
+      return findQueries(input);
+    });
+    const results = await detect("site");
+    assert.deepEqual(consumed, [{ gte: new Date("2026-08-16"), lte: new Date("2026-09-12") }]);
+    assert.deepEqual(results.map((row) => row.query), ["validated-boundary"]);
+    assert.equal(dailyLookups, 1);
+    assert.deepEqual(await metrics.getStoredGscRange("site", 28), { startDate: "2026-08-17", endDate: "2026-09-13" });
+  });
+}
+
 test("rollback retains legacy opportunities without V2 completeness records", async (t) => {
   coverageDatabase(t);
   process.env.GSC_READ_MODEL_V2 = "false";
