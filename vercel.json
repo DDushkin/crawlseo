@@ -13,6 +13,9 @@
     },
     "app/api/gsc/sync/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/gsc-sync/route.ts": {
+      "maxDuration": 60
     }
   }
 }

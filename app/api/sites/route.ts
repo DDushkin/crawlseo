@@ -1,8 +1,9 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { assertPublicDomain } from "@/lib/crawler/engine";
-import { syncGSCDataForSite } from "@/lib/workers/gsc-sync";
 import { ensureDefaultAlerts } from "@/lib/alerts/evaluate";
+import { syncGscSite } from "@/lib/gsc/sync-service";
+import { after } from "next/server";
 
 export async function GET() {
   try {
@@ -107,10 +108,14 @@ export async function POST(req: Request) {
 
     await ensureDefaultAlerts(session.user.id, site.id);
 
-    // Kick off initial GSC sync (don't block the response)
-    void syncGSCDataForSite(session.user.id, site.id, 28).catch((err) =>
-      console.error("Initial GSC sync failed:", err)
-    );
+    // Let Next.js track this post-response work rather than dropping an untracked promise.
+    after(async () => {
+      try {
+        await syncGscSite(session.user.id, site.id, "INITIAL", "backfill");
+      } catch (error) {
+        console.error(`[GSC Sync] Initial sync failed for site ${site.id}`, error);
+      }
+    });
 
     return Response.json(site, { status: 201 });
   } catch (error) {
