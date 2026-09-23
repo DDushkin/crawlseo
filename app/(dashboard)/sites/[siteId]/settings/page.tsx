@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { DeleteSiteButton } from "@/components/sites/delete-site-button";
 import { ApiKeysSection } from "@/components/settings/api-keys-section";
+import { DataForSeoSettingsSection } from "@/components/settings/dataforseo-settings-section";
 
 interface Props {
   params: Promise<{ siteId: string }>;
@@ -89,6 +90,7 @@ export default async function SettingsPage({ params }: Props) {
 
         {/* External API Keys */}
         <ApiKeysSection initialStatus={apiKeyStatus} />
+        <DataForSeoSettingsSection siteId={siteId} hasKey={apiKeyStatus.dataforseo.connected} />
 
         {/* Data summary */}
         <div className="panel p-5">

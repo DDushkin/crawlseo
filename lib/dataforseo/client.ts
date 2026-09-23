@@ -1,9 +1,5 @@
-import { db } from "@/lib/db";
-import { decrypt } from "@/lib/encryption";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+// The only direct request here is the free credential check. Paid requests must
+// pass through gateway.ts so site budgets, caching and the usage ledger apply.
 
 export type KeywordResult = {
   keyword: string;
@@ -11,15 +7,15 @@ export type KeywordResult = {
   difficulty: number | null;
   cpc: number | null;
   competition: number | null;
-  trend: number[] | null; // monthly search volume trend
+  trend: number[] | null;
 };
 
 export type DomainOverviewResult = {
   organicKeywords: number;
   organicTraffic: number;
   organicCost: number;
-  backlinks: number;
-  referringDomains: number;
+  backlinks: number | null;
+  referringDomains: number | null;
 };
 
 export type BacklinksOverviewResult = {
@@ -35,73 +31,94 @@ export type BacklinkItem = {
   sourceUrl: string;
   targetUrl: string;
   anchorText: string;
-  dofollow: boolean;
+  dofollow: boolean | null;
   firstSeen: string | null;
   lastSeen: string | null;
 };
 
-// ---------------------------------------------------------------------------
-// Credential helpers
-// ---------------------------------------------------------------------------
+type DataForSeoResponse = { tasks?: Array<{ result?: Array<Record<string, unknown>> }> };
+type KeywordItem = {
+  keyword?: string;
+  keyword_data?: {
+    keyword?: string;
+    keyword_info?: { search_volume?: number; cpc?: number; competition?: number; monthly_searches?: Array<{ search_volume: number }> };
+    keyword_properties?: { keyword_difficulty?: number };
+  };
+};
+type DomainItem = { metrics?: { organic?: { count?: number; etv?: number; estimated_paid_traffic_cost?: number } } };
+type BacklinksItem = { backlinks?: number; referring_links_attributes?: { nofollow?: number }; referring_domains?: number; referring_ips?: number };
+type ProfileItem = { referring_main_domain?: string; url_from?: string; url_to?: string; anchor?: string; dofollow?: boolean; first_seen?: string; last_seen?: string };
 
-async function getCredentials(userId: string): Promise<{ login: string; password: string } | null> {
-  const apiKey = await db.apiKey.findUnique({
-    where: { userId_provider: { userId, provider: "dataforseo" } },
+function firstResult(data: DataForSeoResponse) {
+  return data.tasks?.[0]?.result?.[0];
+}
+
+export function parseKeywordResults(data: DataForSeoResponse): KeywordResult[] {
+  const items = firstResult(data)?.items;
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => {
+    const row = item as KeywordItem;
+    const keywordData = row.keyword_data ?? {};
+    const info = keywordData.keyword_info ?? {};
+    return {
+      keyword: keywordData.keyword ?? row.keyword ?? "",
+      volume: info.search_volume ?? null,
+      difficulty: keywordData.keyword_properties?.keyword_difficulty ?? null,
+      cpc: info.cpc ?? null,
+      competition: info.competition ?? null,
+      trend: info.monthly_searches?.map((month: { search_volume: number }) => month.search_volume) ?? null,
+    };
   });
-  if (!apiKey) return null;
+}
 
+export function parseDomainOverview(data: DataForSeoResponse): DomainOverviewResult | null {
+  const item = firstResult(data) as DomainItem | undefined;
+  if (!item) return null;
   return {
-    login: decrypt(apiKey.encryptedLogin),
-    password: decrypt(apiKey.encryptedPassword),
+    organicKeywords: item.metrics?.organic?.count ?? 0,
+    organicTraffic: item.metrics?.organic?.etv ?? 0,
+    organicCost: item.metrics?.organic?.estimated_paid_traffic_cost ?? 0,
+    backlinks: null, // Backlinks belong to the separate Backlinks API, not Labs.
+    referringDomains: null,
   };
 }
 
-function authHeader(login: string, password: string): string {
-  return "Basic " + Buffer.from(`${login}:${password}`).toString("base64");
+export function parseBacklinksOverview(data: DataForSeoResponse): BacklinksOverviewResult | null {
+  const item = firstResult(data) as BacklinksItem | undefined;
+  if (!item) return null;
+  const total = item.backlinks ?? 0;
+  const nofollow = item.referring_links_attributes?.nofollow ?? 0;
+  return {
+    totalBacklinks: total,
+    referringDomains: item.referring_domains ?? 0,
+    referringIps: item.referring_ips ?? 0,
+    dofollow: Math.max(0, total - nofollow),
+    nofollow,
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Base request
-// ---------------------------------------------------------------------------
-
-async function dataforseoPost<T>(
-  login: string,
-  password: string,
-  endpoint: string,
-  body: unknown[]
-): Promise<T | null> {
-  const res = await fetch(`https://api.dataforseo.com/v3${endpoint}`, {
-    method: "POST",
-    headers: {
-      Authorization: authHeader(login, password),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
+export function parseBacklinksProfile(data: DataForSeoResponse): BacklinkItem[] {
+  const items = firstResult(data)?.items;
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => {
+    const row = item as ProfileItem;
+    return {
+      referringDomain: row.referring_main_domain ?? "",
+      sourceUrl: row.url_from ?? "",
+      targetUrl: row.url_to ?? "",
+      anchorText: row.anchor ?? "",
+      dofollow: row.dofollow ?? null,
+      firstSeen: row.first_seen ?? null,
+      lastSeen: row.last_seen ?? null,
+    };
   });
-
-  if (!res.ok) {
-    console.error(`DataForSEO ${endpoint} error: ${res.status} ${res.statusText}`);
-    return null;
-  }
-
-  const json = await res.json();
-  if (json.status_code !== 20000) {
-    console.error(`DataForSEO ${endpoint} API error:`, json.status_message);
-    return null;
-  }
-
-  return json as T;
 }
-
-// ---------------------------------------------------------------------------
-// Test connection
-// ---------------------------------------------------------------------------
 
 export async function testConnection(login: string, password: string): Promise<boolean> {
   try {
     const res = await fetch("https://api.dataforseo.com/v3/appendix/user_data", {
       method: "GET",
-      headers: { Authorization: authHeader(login, password) },
+      headers: { Authorization: "Basic " + Buffer.from(`${login}:${password}`).toString("base64") },
     });
     if (!res.ok) return false;
     const json = await res.json();
@@ -109,128 +126,4 @@ export async function testConnection(login: string, password: string): Promise<b
   } catch {
     return false;
   }
-}
-
-// ---------------------------------------------------------------------------
-// Keyword Research
-// ---------------------------------------------------------------------------
-
-export async function keywordResearch(
-  userId: string,
-  seed: string,
-  language?: string,
-  location?: number
-): Promise<KeywordResult[] | null> {
-  const creds = await getCredentials(userId);
-  if (!creds) return null;
-
-  const data = await dataforseoPost<any>(creds.login, creds.password, "/dataforseo_labs/google/related_keywords/live", [
-    {
-      keyword: seed,
-      language_code: language || "en",
-      location_code: location || 2840, // US
-      limit: 50,
-    },
-  ]);
-
-  if (!data?.tasks?.[0]?.result?.[0]?.items) return [];
-
-  return data.tasks[0].result[0].items.map((item: any) => ({
-    keyword: item.keyword_data?.keyword ?? item.keyword ?? seed,
-    volume: item.keyword_data?.keyword_info?.search_volume ?? null,
-    difficulty: item.keyword_data?.keyword_info?.keyword_difficulty ?? null,
-    cpc: item.keyword_data?.keyword_info?.cpc ?? null,
-    competition: item.keyword_data?.keyword_info?.competition ?? null,
-    trend: item.keyword_data?.keyword_info?.monthly_searches?.map((m: any) => m.search_volume) ?? null,
-  }));
-}
-
-// ---------------------------------------------------------------------------
-// Domain Overview
-// ---------------------------------------------------------------------------
-
-export async function domainOverview(
-  userId: string,
-  domain: string
-): Promise<DomainOverviewResult | null> {
-  const creds = await getCredentials(userId);
-  if (!creds) return null;
-
-  const data = await dataforseoPost<any>(creds.login, creds.password, "/dataforseo_labs/google/domain_rank_overview/live", [
-    { target: domain, language_code: "en", location_code: 2840 },
-  ]);
-
-  const item = data?.tasks?.[0]?.result?.[0];
-  if (!item) return null;
-
-  return {
-    organicKeywords: item.metrics?.organic?.count ?? 0,
-    organicTraffic: item.metrics?.organic?.etv ?? 0,
-    organicCost: item.metrics?.organic?.estimated_paid_traffic_cost ?? 0,
-    backlinks: item.metrics?.organic?.backlinks ?? 0,
-    referringDomains: item.metrics?.organic?.referring_domains ?? 0,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Backlinks Overview
-// ---------------------------------------------------------------------------
-
-export async function backlinksOverview(
-  userId: string,
-  domain: string
-): Promise<BacklinksOverviewResult | null> {
-  const creds = await getCredentials(userId);
-  if (!creds) return null;
-
-  const data = await dataforseoPost<any>(creds.login, creds.password, "/backlinks/summary/live", [
-    { target: domain, internal_list_limit: 0, backlinks_filters: [] },
-  ]);
-
-  const item = data?.tasks?.[0]?.result?.[0];
-  if (!item) return null;
-
-  return {
-    totalBacklinks: item.backlinks ?? 0,
-    referringDomains: item.referring_domains ?? 0,
-    referringIps: item.referring_ips ?? 0,
-    dofollow: item.backlinks - (item.referring_links_nofollow ?? 0),
-    nofollow: item.referring_links_nofollow ?? 0,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Backlinks Profile (individual links)
-// ---------------------------------------------------------------------------
-
-export async function backlinksProfile(
-  userId: string,
-  domain: string,
-  limit = 50,
-  offset = 0
-): Promise<BacklinkItem[] | null> {
-  const creds = await getCredentials(userId);
-  if (!creds) return null;
-
-  const data = await dataforseoPost<any>(creds.login, creds.password, "/backlinks/backlinks/live", [
-    {
-      target: domain,
-      mode: "as_is",
-      limit,
-      offset,
-      order_by: ["rank,desc"],
-    },
-  ]);
-
-  if (!data?.tasks?.[0]?.result?.[0]?.items) return [];
-
-  return data.tasks[0].result[0].items.map((item: any) => ({
-    referringDomain: item.referring_main_domain ?? "",
-    sourceUrl: item.url_from ?? "",
-    targetUrl: item.url_to ?? "",
-    anchorText: item.anchor ?? "",
-    dofollow: item.dofollow ?? true,
-    firstSeen: item.first_seen ?? null,
-    lastSeen: item.last_seen ?? null,
-  }));
 }

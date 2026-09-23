@@ -96,14 +96,23 @@ export async function DELETE(req: Request) {
     if (!body.provider) {
       return Response.json({ error: "Missing provider" }, { status: 400 });
     }
+    const provider = body.provider;
 
-    await db.apiKey.delete({
-      where: {
-        userId_provider: {
-          userId: session.user.id,
-          provider: body.provider,
+    await db.$transaction(async (tx) => {
+      await tx.apiKey.delete({
+        where: {
+          userId_provider: {
+            userId: session.user.id,
+            provider,
+          },
         },
-      },
+      });
+      if (provider === "dataforseo") {
+        await tx.dataForSeoSettings.updateMany({
+          where: { site: { userId: session.user.id } },
+          data: { mode: "SANDBOX" },
+        });
+      }
     });
 
     return Response.json({ success: true });

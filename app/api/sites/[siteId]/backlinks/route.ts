@@ -1,89 +1,39 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import {
-  backlinksOverview,
-  backlinksProfile,
-} from "@/lib/dataforseo/client";
+import { parseBacklinksOverview, parseBacklinksProfile } from "@/lib/dataforseo/client";
+import { DataForSeoError, executeDataForSeo } from "@/lib/dataforseo/gateway";
 
-export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ siteId: string }> }
-) {
+async function getOwnedSite(siteId: string, userId: string) {
+  return db.site.findFirst({ where: { id: siteId, userId }, select: { domain: true } });
+}
+
+export async function GET(_req: Request, { params }: { params: Promise<{ siteId: string }> }) {
+  const session = await auth();
+  if (!session?.user?.id) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const { siteId } = await params;
+  if (!await getOwnedSite(siteId, session.user.id)) return Response.json({ error: "Not found" }, { status: 404 });
+  // Outgoing external links discovered by a crawl are not inbound backlinks.
+  return Response.json({ source: "none", overview: null, backlinks: [] });
+}
+
+export async function POST(req: Request, { params }: { params: Promise<{ siteId: string }> }) {
+  const session = await auth();
+  if (!session?.user?.id) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const { siteId } = await params;
+  const site = await getOwnedSite(siteId, session.user.id);
+  if (!site) return Response.json({ error: "Not found" }, { status: 404 });
+  const body = await req.json().catch(() => null);
+  if (!body || body.confirm !== true) return Response.json({ error: "Preview and confirm this provider request first" }, { status: 400 });
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { siteId } = await params;
-    const site = await db.site.findUnique({
-      where: { id: siteId },
-      select: { userId: true, domain: true },
-    });
-    if (!site || site.userId !== session.user.id) {
-      return Response.json({ error: "Not found" }, { status: 404 });
-    }
-
-    const url = new URL(req.url);
-    const limit = parseInt(url.searchParams.get("limit") || "50", 10);
-    const offset = parseInt(url.searchParams.get("offset") || "0", 10);
-
-    // Try DataForSEO
-    const [overview, profile] = await Promise.all([
-      backlinksOverview(session.user.id, site.domain),
-      backlinksProfile(session.user.id, site.domain, limit, offset),
-    ]);
-
-    if (overview !== null) {
-      return Response.json({
-        source: "dataforseo",
-        overview,
-        backlinks: profile ?? [],
-      });
-    }
-
-    // Fallback: external links from our own crawl data
-    const latestCrawl = await db.crawl.findFirst({
-      where: { siteId, status: "COMPLETED" },
-      orderBy: { finishedAt: "desc" },
-      select: { id: true },
-    });
-
-    if (latestCrawl) {
-      const externalLinks = await db.auditLink.findMany({
-        where: { crawlId: latestCrawl.id, isInternal: false },
-        take: limit,
-        skip: offset,
-        select: {
-          sourceUrl: true,
-          targetUrl: true,
-          anchorText: true,
-          isNofollow: true,
-        },
-      });
-
-      return Response.json({
-        source: "crawl",
-        overview: null,
-        backlinks: externalLinks.map((link) => ({
-          referringDomain: "",
-          sourceUrl: link.sourceUrl,
-          targetUrl: link.targetUrl,
-          anchorText: link.anchorText ?? "",
-          dofollow: !link.isNofollow,
-          firstSeen: null,
-          lastSeen: null,
-        })),
-      });
-    }
-
+    const result = await executeDataForSeo(siteId, session.user.id, site.domain, "backlinks", site.domain, body.limit);
     return Response.json({
-      source: "none",
-      overview: null,
-      backlinks: [],
+      source: result.mode === "SANDBOX" ? "dataforseo-sandbox" : "dataforseo-live",
+      overview: parseBacklinksOverview(result.results[0] as Parameters<typeof parseBacklinksOverview>[0]),
+      backlinks: parseBacklinksProfile(result.results[1] as Parameters<typeof parseBacklinksProfile>[0]),
+      meta: { mode: result.mode, cached: result.cached, chargedUsd: result.chargedUsd },
     });
   } catch (error) {
-    console.error("Backlinks error:", error);
-    return Response.json({ error: "Backlinks fetch failed" }, { status: 500 });
+    if (error instanceof DataForSeoError) return Response.json({ error: error.message }, { status: error.status });
+    throw error;
   }
 }

@@ -10,6 +10,7 @@ import {
   Settings,
 } from "lucide-react";
 import Link from "next/link";
+import { confirmDataForSeoRequest } from "./dataforseo-confirm";
 
 type KeywordResult = {
   keyword: string;
@@ -33,6 +34,7 @@ export function KeywordResearchClient({
   const [source, setSource] = useState<string | null>(null);
   const [savedSet, setSavedSet] = useState<Set<string>>(new Set());
   const [savingSet, setSavingSet] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -41,16 +43,40 @@ export function KeywordResearchClient({
     setLoading(true);
     setResults([]);
     setSource(null);
+    setError(null);
 
     try {
       const res = await fetch(
         `/api/sites/${siteId}/keyword-research?q=${encodeURIComponent(query.trim())}`
       );
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Search failed");
       setResults(data.keywords ?? []);
       setSource(data.source ?? null);
-    } catch {
+    } catch (error) {
       setResults([]);
+      setError(error instanceof Error ? error.message : "Search failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleProviderSearch() {
+    if (!query.trim() || loading) return;
+    setError(null);
+    try {
+      if (!await confirmDataForSeoRequest(siteId, "keywords", query.trim())) return;
+      setLoading(true);
+      const res = await fetch(`/api/sites/${siteId}/keyword-research`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: query.trim(), confirm: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "DataForSEO request failed");
+      setResults(data.keywords ?? []);
+      setSource(data.source);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "DataForSEO request failed");
     } finally {
       setLoading(false);
     }
@@ -125,9 +151,19 @@ export function KeywordResearchClient({
           ) : (
             <Search className="size-4" />
           )}
-          Research
+          Free suggestions
         </button>
       </form>
+      {hasDataForSEO && (
+        <button type="button" onClick={handleProviderSearch} disabled={!query.trim() || loading}
+          className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50">
+          Get DataForSEO metrics (preview cost first)
+        </button>
+      )}
+      {error && <p className="text-sm text-danger">{error}</p>}
+      {source === "dataforseo-sandbox" && (
+        <p className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm text-warning">Sandbox data is synthetic. Do not save or use these numbers for decisions.</p>
+      )}
 
       {/* Results */}
       {results.length > 0 && (
@@ -145,7 +181,7 @@ export function KeywordResearchClient({
                   <th className="px-4 py-3 font-medium text-muted-foreground">
                     Keyword
                   </th>
-                  {source === "dataforseo" && (
+                  {source?.startsWith("dataforseo") && (
                     <>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">
                         Volume
@@ -178,7 +214,7 @@ export function KeywordResearchClient({
                           {result.keyword}
                         </span>
                       </td>
-                      {source === "dataforseo" && (
+                      {source?.startsWith("dataforseo") && (
                         <>
                           <td className="px-4 py-3 text-right font-data text-foreground">
                             {result.volume?.toLocaleString() ?? "—"}
@@ -195,7 +231,7 @@ export function KeywordResearchClient({
                         <button
                           type="button"
                           onClick={() => handleSave(result.keyword)}
-                          disabled={isSaved || isSaving}
+                          disabled={isSaved || isSaving || source === "dataforseo-sandbox"}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50"
                         >
                           {isSaved ? (
@@ -221,7 +257,7 @@ export function KeywordResearchClient({
           </div>
           <div className="border-t border-border bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
             {results.length} keyword{results.length !== 1 ? "s" : ""} found
-            {source === "dataforseo" ? " via DataForSEO" : " via Google Autocomplete"}
+            {source?.startsWith("dataforseo") ? ` via DataForSEO ${source === "dataforseo-sandbox" ? "Sandbox" : "Live"}` : " via Google Autocomplete"}
           </div>
         </div>
       )}

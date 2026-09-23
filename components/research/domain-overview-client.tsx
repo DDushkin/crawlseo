@@ -9,6 +9,7 @@ import {
   ArrowRightLeft,
 } from "lucide-react";
 import Link from "next/link";
+import { confirmDataForSeoRequest } from "./dataforseo-confirm";
 
 type DomainData = {
   source: string;
@@ -48,18 +49,40 @@ export function DomainOverviewClient({
   const [loadingOwn, setLoadingOwn] = useState(false);
   const [loadingCompetitor, setLoadingCompetitor] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function loadOwnDomain() {
     setLoadingOwn(true);
+    setError(null);
     try {
       const res = await fetch(`/api/sites/${siteId}/domain-overview`);
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "GSC request failed");
       setOwnData(data);
       setLoaded(true);
-    } catch {
-      // ignore
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "GSC request failed");
     } finally {
       setLoadingOwn(false);
+    }
+  }
+
+  async function loadProviderDomain(target: string, competitor: boolean) {
+    setError(null);
+    try {
+      if (!await confirmDataForSeoRequest(siteId, "domain", target)) return;
+      if (competitor) setLoadingCompetitor(true); else setLoadingOwn(true);
+      const res = await fetch(`/api/sites/${siteId}/domain-overview`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target, confirm: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "DataForSEO request failed");
+      if (competitor) setCompetitorData(data); else { setOwnData(data); setLoaded(true); }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "DataForSEO request failed");
+    } finally {
+      if (competitor) setLoadingCompetitor(false); else setLoadingOwn(false);
     }
   }
 
@@ -68,19 +91,7 @@ export function DomainOverviewClient({
     if (!competitorDomain.trim()) return;
 
     if (!loaded) await loadOwnDomain();
-
-    setLoadingCompetitor(true);
-    try {
-      const res = await fetch(
-        `/api/sites/${siteId}/domain-overview?domain=${encodeURIComponent(competitorDomain.trim())}`
-      );
-      const data = await res.json();
-      setCompetitorData(data);
-    } catch {
-      // ignore
-    } finally {
-      setLoadingCompetitor(false);
-    }
+    await loadProviderDomain(competitorDomain.trim(), true);
   }
 
   return (
@@ -119,8 +130,15 @@ export function DomainOverviewClient({
           ) : (
             <Globe className="size-4" />
           )}
-          Analyze {domain}
+          View GSC {domain}
         </button>
+
+        {hasDataForSEO && (
+          <button type="button" onClick={() => loadProviderDomain(domain, false)} disabled={loadingOwn}
+            className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted disabled:opacity-50">
+            DataForSEO analysis (preview cost)
+          </button>
+        )}
 
         {hasDataForSEO && (
           <form onSubmit={handleCompare} className="flex flex-1 gap-2">
@@ -144,11 +162,15 @@ export function DomainOverviewClient({
               ) : (
                 <Search className="size-4" />
               )}
-              Compare
+              Compare via DataForSEO
             </button>
           </form>
         )}
       </div>
+      {error && <p className="text-sm text-danger">{error}</p>}
+      {(ownData?.source === "dataforseo-sandbox" || competitorData?.source === "dataforseo-sandbox") && (
+        <p className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm text-warning">Sandbox values are synthetic and should not be used for decisions.</p>
+      )}
 
       {/* Results - side by side */}
       {(ownData || competitorData) && (
@@ -185,11 +207,11 @@ function DomainCard({ data, label }: { data: DomainData; label: string }) {
       {data.overview ? (
         <div className="grid grid-cols-2 gap-3">
           <MetricCard
-            label="Organic Keywords"
+            label={data.source === "gsc" ? "Observed GSC queries" : "Estimated organic keywords"}
             value={data.overview.organicKeywords.toLocaleString()}
           />
           <MetricCard
-            label="Organic Traffic"
+            label={data.source === "gsc" ? "GSC clicks (28 days)" : "Estimated monthly traffic"}
             value={data.overview.organicTraffic.toLocaleString()}
           />
           {data.overview.organicCost != null && (
@@ -235,7 +257,7 @@ function DomainCard({ data, label }: { data: DomainData; label: string }) {
               value={data.backlinks.referringDomains.toLocaleString()}
             />
             <MetricCard
-              label="Dofollow"
+              label="Not nofollow"
               value={data.backlinks.dofollow.toLocaleString()}
             />
             <MetricCard

@@ -9,13 +9,14 @@ import {
   RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
+import { confirmDataForSeoRequest } from "./dataforseo-confirm";
 
 type BacklinkItem = {
   referringDomain: string;
   sourceUrl: string;
   targetUrl: string;
   anchorText: string;
-  dofollow: boolean;
+  dofollow: boolean | null;
   firstSeen: string | null;
   lastSeen: string | null;
 };
@@ -42,18 +43,25 @@ export function BacklinksClient({
   const [overview, setOverview] = useState<BacklinksOverview | null>(null);
   const [backlinks, setBacklinks] = useState<BacklinkItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleLoad() {
-    setLoading(true);
+    setError(null);
     try {
-      const res = await fetch(`/api/sites/${siteId}/backlinks`);
+      if (!await confirmDataForSeoRequest(siteId, "backlinks", domain, 50)) return;
+      setLoading(true);
+      const res = await fetch(`/api/sites/${siteId}/backlinks`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true, limit: 50 }),
+      });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Backlink request failed");
       setSource(data.source);
       setOverview(data.overview);
       setBacklinks(data.backlinks ?? []);
       setLoaded(true);
-    } catch {
-      // ignore
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Backlink request failed");
     } finally {
       setLoading(false);
     }
@@ -85,7 +93,7 @@ export function BacklinksClient({
       <button
         type="button"
         onClick={handleLoad}
-        disabled={loading}
+        disabled={loading || !hasDataForSEO}
         className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
       >
         {loading ? (
@@ -95,8 +103,12 @@ export function BacklinksClient({
         ) : (
           <LinkIcon className="size-4" />
         )}
-        {loaded ? "Refresh" : "Load Backlinks"}
+        {loaded ? "Refresh (preview cost)" : "Load inbound backlinks (preview cost)"}
       </button>
+      {error && <p className="text-sm text-danger">{error}</p>}
+      {source === "dataforseo-sandbox" && (
+        <p className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm text-warning">Sandbox backlinks are dummy data, not real links to {domain}.</p>
+      )}
 
       {/* Overview stats */}
       {overview && (
@@ -110,7 +122,7 @@ export function BacklinksClient({
             value={overview.referringDomains.toLocaleString()}
           />
           <StatCard
-            label="Dofollow"
+            label="Not nofollow"
             value={overview.dofollow.toLocaleString()}
           />
           <StatCard
@@ -149,7 +161,7 @@ export function BacklinksClient({
                   >
                     <td className="max-w-[200px] px-4 py-3">
                       <span className="block truncate font-medium text-foreground">
-                        {link.referringDomain || new URL(link.sourceUrl).hostname}
+                        {referringLabel(link)}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
                         {link.sourceUrl}
@@ -173,7 +185,7 @@ export function BacklinksClient({
                             : "bg-muted text-muted-foreground"
                         }`}
                       >
-                        {link.dofollow ? "dofollow" : "nofollow"}
+                        {link.dofollow == null ? "unknown" : link.dofollow ? "dofollow" : "nofollow"}
                       </span>
                     </td>
                   </tr>
@@ -183,7 +195,7 @@ export function BacklinksClient({
           </div>
           <div className="border-t border-border bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
             {backlinks.length} backlink{backlinks.length !== 1 ? "s" : ""}
-            {source === "dataforseo" ? " via DataForSEO" : " from crawl data"}
+            {source === "dataforseo-sandbox" ? " via DataForSEO Sandbox (dummy)" : " via DataForSEO Live"}
           </div>
         </div>
       )}
@@ -195,13 +207,18 @@ export function BacklinksClient({
           <p className="mt-3 font-medium text-foreground">No backlinks found</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {source === "none"
-              ? "Run a site crawl first to discover external links, or add a DataForSEO API key for full backlink data"
-              : "No backlink data available"}
+              ? "Connect DataForSEO to check inbound backlinks. Site crawls only see outgoing links."
+              : "No inbound backlink data available"}
           </p>
         </div>
       )}
     </div>
   );
+}
+
+function referringLabel(link: BacklinkItem) {
+  if (link.referringDomain) return link.referringDomain;
+  try { return new URL(link.sourceUrl).hostname; } catch { return "—"; }
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {

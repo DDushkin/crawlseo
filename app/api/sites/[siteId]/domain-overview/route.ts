@@ -1,10 +1,11 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { domainOverview, backlinksOverview } from "@/lib/dataforseo/client";
+import { parseDomainOverview, parseBacklinksOverview } from "@/lib/dataforseo/client";
+import { DataForSeoError, executeDataForSeo } from "@/lib/dataforseo/gateway";
 import { getSitePeriodMetrics } from "@/lib/seo-metrics";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ siteId: string }> }
 ) {
   try {
@@ -22,24 +23,12 @@ export async function GET(
       return Response.json({ error: "Not found" }, { status: 404 });
     }
 
-    const targetDomain = site.domain;
-
-    // Try DataForSEO
-    const [domainData, backlinksData] = await Promise.all([
-      domainOverview(session.user.id, targetDomain),
-      backlinksOverview(session.user.id, targetDomain),
-    ]);
-
-    if (domainData !== null) {
-      return Response.json({
-        source: "dataforseo",
-        domain: targetDomain,
-        overview: domainData,
-        backlinks: backlinksData,
-      });
+    if (new URL(req.url).searchParams.has("domain")) {
+      return Response.json({ error: "Competitor data requires a confirmed DataForSEO request" }, { status: 400 });
     }
 
-    // Fallback to GSC data
+    const targetDomain = site.domain;
+    // GET uses first-party GSC data only; no paid request on page load.
     const metrics = await getSitePeriodMetrics(siteId, 28);
 
     return Response.json({
@@ -61,5 +50,30 @@ export async function GET(
       { error: "Domain overview failed" },
       { status: 500 }
     );
+  }
+}
+
+export async function POST(req: Request, { params }: { params: Promise<{ siteId: string }> }) {
+  const session = await auth();
+  if (!session?.user?.id) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const { siteId } = await params;
+  const site = await db.site.findFirst({ where: { id: siteId, userId: session.user.id }, select: { domain: true } });
+  if (!site) return Response.json({ error: "Not found" }, { status: 404 });
+  const body = await req.json().catch(() => null);
+  if (!body || body.confirm !== true || typeof body.target !== "string") {
+    return Response.json({ error: "Preview and confirm this provider request first" }, { status: 400 });
+  }
+  try {
+    const result = await executeDataForSeo(siteId, session.user.id, site.domain, "domain", body.target);
+    return Response.json({
+      source: result.mode === "SANDBOX" ? "dataforseo-sandbox" : "dataforseo-live",
+      domain: result.target,
+      overview: parseDomainOverview(result.results[0] as Parameters<typeof parseDomainOverview>[0]),
+      backlinks: parseBacklinksOverview(result.results[1] as Parameters<typeof parseBacklinksOverview>[0]),
+      meta: { mode: result.mode, cached: result.cached, chargedUsd: result.chargedUsd },
+    });
+  } catch (error) {
+    if (error instanceof DataForSeoError) return Response.json({ error: error.message }, { status: error.status });
+    throw error;
   }
 }

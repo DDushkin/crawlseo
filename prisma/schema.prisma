@@ -109,8 +109,44 @@ model Site {
   gscSyncRuns       GscSyncRun[]
   gscSyncLease      GscSyncLease?
   gscReportCoverage GscReportCoverage[]
+  dataForSeoSettings DataForSeoSettings?
+  dataForSeoRuns     DataForSeoRun[]
 
   @@unique([userId, domain])
+}
+
+// DataForSEO is opt-in per site. Existing sites remain in free sandbox mode.
+model DataForSeoSettings {
+  siteId       String   @id
+  mode         String   @default("SANDBOX") // SANDBOX or LIVE
+  locationCode Int      @default(2840)
+  languageCode String   @default("en")
+  spentUsd     Float    @default(0)
+  reservedUsd  Float    @default(0)
+  updatedAt    DateTime @updatedAt
+  site         Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+}
+
+model DataForSeoRun {
+  id           String    @id @default(cuid())
+  siteId       String
+  operation    String
+  target       String
+  mode         String
+  cacheKey     String
+  activeKey    String?   @unique
+  status       String    // RESERVED, SUCCEEDED, FAILED
+  estimatedUsd Float
+  chargedUsd   Float?
+  taskId       String?
+  response     Json?
+  error        String?
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+  site         Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, cacheKey, status, expiresAt])
+  @@index([siteId, createdAt])
 }
 
 // ============ GSC DATA ============

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CheckCircle2, XCircle, Loader2, FlaskConical, Save, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 type ApiKeyStatus = Record<string, { connected: boolean; updatedAt?: string }>;
 
@@ -11,6 +12,7 @@ export function ApiKeysSection({
   initialStatus: ApiKeyStatus;
 }) {
   const [status, setStatus] = useState<ApiKeyStatus>(initialStatus);
+  const router = useRouter();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [testing, setTesting] = useState(false);
@@ -64,6 +66,7 @@ export function ApiKeysSection({
         setLogin("");
         setPassword("");
         setTestResult(null);
+        router.refresh();
       } else {
         const data = await res.json();
         setError(data.error || "Failed to save");
@@ -91,6 +94,7 @@ export function ApiKeysSection({
           ...prev,
           dataforseo: { connected: false },
         }));
+        router.refresh();
       }
     } catch {
       setError("Delete failed");

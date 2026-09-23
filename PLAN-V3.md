@@ -2,6 +2,8 @@
 
 > Date: 2026-07-20
 
+> Historical plan. DataForSEO request behavior has been superseded by [the site-scoped safety pilot](docs/dataforseo-integration.md): GET routes are free, paid-provider calls require confirmed POST requests, and backlink metrics come only from the Backlinks API.
+
 ## Overview
 
 Add research tools (Keyword Research, Domain Overview, Backlinks), an AI & MCP info page, DataForSEO Bring-Your-Own-Key support, and reorganize sidebar navigation into grouped sections.
