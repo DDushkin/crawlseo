@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildDataForSeoRequest, normalizeDataForSeoTarget } from "../lib/dataforseo/gateway";
-import { parseCompetitorGap, parsePlacementCheck, parseAiCitationSample } from "../lib/dataforseo/client";
+import { parseCompetitorGap, parsePlacementCheck, parseAiCitationSample, parseSerpBrief } from "../lib/dataforseo/client";
 
 const market = { locationCode: 2804, languageCode: "uk" };
 
@@ -33,6 +33,27 @@ test("AI citation sample forces web search and uses the site's market", () => {
   });
   assert.ok(spec.timeoutMs >= 120_000);
   assert.equal(spec.estimatedUsd, 0.004);
+});
+
+test("brief SERP requests one Ukraine result page without paid expansion flags", () => {
+  const spec = buildDataForSeoRequest("serp_brief", "трекер ОВДП", "strum.capital", market, 10);
+  assert.equal(spec.endpoint, "/serp/google/organic/live/advanced");
+  assert.deepEqual(spec.params, { keyword: "трекер ОВДП", location_code: 2804, language_code: "uk", depth: 10 });
+  assert.throws(() => normalizeDataForSeoTarget("site:competitor.ua ОВДП", "serp_brief"), /search operators/i);
+});
+
+test("brief SERP parser keeps observed organic pages, string related searches, and result market", () => {
+  const result = parseSerpBrief({ tasks: [{ result: [{ datetime: "2026-09-23 10:00:00 +00:00", location_code: 2804, language_code: "uk", items: [
+    { type: "organic", rank_group: 1, url: "https://competitor.ua/ovdp", domain: "competitor.ua", title: "ОВДП", description: "Guide" },
+    { type: "people_also_ask", items: [{ type: "people_also_ask_element", title: "Як вести облік ОВДП?" }] },
+    { type: "related_searches", items: ["облік ОВДП"] },
+  ] }] }] });
+  assert.deepEqual(result.organic[0], { url: "https://competitor.ua/ovdp", domain: "competitor.ua", title: "ОВДП", description: "Guide", position: 1 });
+  assert.deepEqual(result.questions, ["Як вести облік ОВДП?"]);
+  assert.deepEqual(result.relatedSearches, ["облік ОВДП"]);
+  assert.equal(result.observedAt, "2026-09-23 10:00:00 +00:00");
+  assert.equal(result.locationCode, 2804);
+  assert.equal(result.languageCode, "uk");
 });
 
 test("invalid placement URLs and own-domain competitors fail before any provider call", () => {

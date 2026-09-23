@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { inclusiveRangeEnding, pacificDateLabel, previousDateRange, shiftDateLabel, toDbDate } from "@/lib/gsc/date-range";
-import { getV2GscReportCoverage, hasV2CompleteGscReportCoverage } from "@/lib/gsc/read-model";
+import { getV2GscReportCoverage } from "@/lib/gsc/read-model";
 import { chooseTodayActions } from "./detect";
 import { summarizeCitationPanel } from "./ai-visibility";
 
@@ -31,6 +31,13 @@ export function weeklyWindowForEnd(endDate: string) {
   }
   const current = inclusiveRangeEnding(endDate, 7);
   return { current, previous: previousDateRange(current) };
+}
+
+export function weeklyGscEvidenceState(enabled: boolean, coverage: Range | null,
+  window: { current: Range; previous: Range }, now: Date): "FRESH" | "PARTIAL" | "STALE" | "UNAVAILABLE" {
+  if (!enabled || !coverage) return "UNAVAILABLE";
+  if (coverage.startDate > window.previous.startDate || coverage.endDate < window.current.endDate) return "PARTIAL";
+  return window.current.endDate < shiftDateLabel(pacificDateLabel(now), -4) ? "STALE" : "FRESH";
 }
 
 export function buildWeeklyReport(input: WeeklyInput) {
@@ -79,8 +86,10 @@ export async function loadWeeklyReport(siteId: string, now = new Date(), endDate
   const gscScope = site.gscProperty ? { siteId, property: site.gscProperty, searchType: site.gscSearchType } : null;
   const ga4Ready = !!site.lastGa4SyncAt && pacificDateLabel(site.lastGa4SyncAt) >= shiftDateLabel(window.current.endDate, 2) &&
     window.current.startDate >= shiftDateLabel(pacificDateLabel(site.lastGa4SyncAt), -91);
-  const gscComplete = gscScope && site.gscDataVersion === 2 && process.env.GSC_READ_MODEL_V2 !== "false" ?
-    await hasV2CompleteGscReportCoverage(gscScope, "dailyTotal", { startDate: window.previous.startDate, endDate: window.current.endDate }) : false;
+  const gscEnabled = !!gscScope && site.gscDataVersion === 2 && process.env.GSC_READ_MODEL_V2 !== "false";
+  const gscCoverage = gscEnabled && gscScope ? await getV2GscReportCoverage(gscScope, "dailyTotal") : null;
+  const gscState = weeklyGscEvidenceState(gscEnabled, gscCoverage, window, now);
+  const gscComplete = gscState === "FRESH" || gscState === "STALE";
   const [gscRows, aiDays, aiReferrals, comparison, placements, provider, actions, completed, pendingOutcomes, observedOutcomes, latestPanel] = await Promise.all([
     gscComplete && gscScope ? db.gscDailyTotal.findMany({ where: { ...gscScope, date: { gte: startDate, lte: endDbDate }, syncRun: { property: gscScope.property } },
       select: { date: true, clicks: true, impressions: true } }) : [],
@@ -103,8 +112,6 @@ export async function loadWeeklyReport(siteId: string, now = new Date(), endDate
     return gscRows.filter((row) => { const date = row.date.toISOString().slice(0, 10); return date >= range.startDate && date <= range.endDate; })
       .reduce((sum, row) => ({ clicks: sum.clicks + row.clicks, impressions: sum.impressions + row.impressions }), { clicks: 0, impressions: 0 });
   }
-  const gscState = !gscScope ? "UNAVAILABLE" : !gscComplete ? "PARTIAL" :
-    window.current.endDate < shiftDateLabel(pacificDateLabel(now), -4) ? "STALE" : "FRESH";
   const aiSummary = latestPanel ? summarizeCitationPanel({ mode: latestPanel.mode, promptCount: latestPanel.promptCount,
     results: latestPanel.results.map((result) => ({ ...result, sources: [] })) }) : null;
   return buildWeeklyReport({ siteId, domain: site.domain, window,

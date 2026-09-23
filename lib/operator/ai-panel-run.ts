@@ -24,6 +24,7 @@ export async function previewAiPanel(siteId: string, domain: string) {
   const prompts = await db.aiPrompt.findMany({ where: { siteId, active: true }, orderBy: { createdAt: "asc" }, take: MAX_AI_PANEL_PROMPTS + 1 });
   if (!prompts.length) throw new Error("Add at least one active customer question");
   if (prompts.length > MAX_AI_PANEL_PROMPTS) throw new Error(`Run up to ${MAX_AI_PANEL_PROMPTS} active questions at once`);
+  if (prompts.some((prompt) => prompt.question.length > 200)) throw new Error("An active question exceeds 200 characters; shorten it before running the panel");
   const settings = await getDataForSeoSettings(siteId, domain);
   const country = countryForDataForSeoLocation(settings.locationCode);
   if (!country || prompts.some((prompt) => prompt.country !== country || prompt.language !== settings.languageCode || prompt.platform !== "CHATGPT_WEB")) {

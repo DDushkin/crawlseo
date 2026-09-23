@@ -45,7 +45,7 @@ export function DataForSeoSettingsSection({ siteId, hasKey }: { siteId: string; 
 
   async function save() {
     if (!settings) return;
-    if (mode === "LIVE" && !window.confirm("Enable paid DataForSEO Live requests for this site? Requests still need individual confirmation and are capped at $0.15 total in this pilot.")) return;
+    if (mode === "LIVE" && !window.confirm("Enable paid DataForSEO Live requests for this site? Each request still needs confirmation. The $0.15 site guard reserves $0.06 per request, but provider-reported charges can differ; it is not a hard account spending limit.")) return;
     setSaving(true);
     setError(null);
     try {
@@ -81,7 +81,7 @@ export function DataForSeoSettingsSection({ siteId, hasKey }: { siteId: string; 
   return (
     <div className="panel p-5">
       <h3 className="font-heading text-lg font-semibold text-foreground">DataForSEO for this site</h3>
-      <p className="mt-1 text-sm text-muted-foreground">Sandbox is free but synthetic. Live requires a separate confirmation for every request and has a $0.15 per-site pilot cap, with a $0.06 maximum estimated cost per request.</p>
+      <p className="mt-1 text-sm text-muted-foreground">Sandbox is free but synthetic. Live requires confirmation for every request. The $0.15 per-site guard reserves $0.06 for each in-flight request; actual provider charges may differ, so this is not a guaranteed account spending cap.</p>
       {settings && (
         <>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">

@@ -7,9 +7,9 @@ import { decrypt } from "@/lib/encryption";
 export const LIVE_SITE_BUDGET_USD = 0.15;
 export const MAX_REQUEST_USD = 0.06;
 
-export type DataForSeoKind = "keywords" | "domain" | "backlinks" | "competitor_gap" | "placement" | "ai_citation";
+export type DataForSeoKind = "keywords" | "domain" | "backlinks" | "competitor_gap" | "placement" | "ai_citation" | "serp_brief";
 export type DataForSeoMode = "SANDBOX" | "LIVE";
-type Operation = "related_keywords" | "domain_rank_overview" | "backlinks_summary" | "backlinks_list" | "competitor_gap" | "placement_check" | "ai_citation";
+type Operation = "related_keywords" | "domain_rank_overview" | "backlinks_summary" | "backlinks_list" | "competitor_gap" | "placement_check" | "ai_citation" | "serp_brief";
 
 export class DataForSeoError extends Error {
   constructor(message: string, public status = 400) {
@@ -49,8 +49,11 @@ export async function getDataForSeoAccountBalance(userId: string): Promise<numbe
 
 export function normalizeDataForSeoTarget(target: string, kind: DataForSeoKind): string {
   const clean = target.trim();
-  if (kind === "keywords" || kind === "ai_citation") {
+  if (kind === "keywords" || kind === "ai_citation" || kind === "serp_brief") {
     if (clean.length < 3 || clean.length > 200) throw new DataForSeoError("Keyword must be 3–200 characters");
+    if (kind === "serp_brief" && /\b(?:allinanchor|allintext|allintitle|allinurl|cache|define|definition|filetype|id|inanchor|info|intext|intitle|inurl|link|site):/i.test(clean)) {
+      throw new DataForSeoError("SERP brief research does not allow cost-multiplying search operators");
+    }
     return clean;
   }
   if (kind === "placement") {
@@ -141,6 +144,12 @@ export function buildDataForSeoRequest(
         params: { keyword: target, force_web_search: true, location_code: market.locationCode, language_code: market.languageCode },
         estimatedUsd: 0.004, ttlDays: 1, timeoutMs: 130_000,
       };
+    case "serp_brief":
+      return {
+        endpoint: "/serp/google/organic/live/advanced",
+        params: { keyword: target, location_code: market.locationCode, language_code: market.languageCode, depth: 10 },
+        estimatedUsd: 0.002, ttlDays: 14, timeoutMs: 30_000,
+      };
   }
 }
 
@@ -209,6 +218,9 @@ async function runOne(
   const mode = settings.mode as DataForSeoMode;
   const spec = buildDataForSeoRequest(operation, target, domain, settings, limit);
   if (spec.estimatedUsd > MAX_REQUEST_USD) throw new DataForSeoError("Request exceeds the per-request cost cap");
+  // Reserve the conservative allowance, not the lower preview estimate.
+  // Final provider charges are known only after the request; this is not a provider-side hard limit.
+  const reservationUsd = mode === "LIVE" ? MAX_REQUEST_USD : 0;
   const key = cacheKey(siteId, mode, spec.endpoint, spec.params);
   const hit = await db.dataForSeoRun.findFirst({
     where: { siteId, cacheKey: key, status: "SUCCEEDED", expiresAt: { gt: new Date() } },
@@ -222,14 +234,14 @@ async function runOne(
   const activeKey = `${siteId}:${key}`;
   let runId: string;
   try {
-    // Serializable transaction prevents concurrent requests from exceeding the per-site cap.
+    // Serializable reservation prevents concurrent requests from passing the local spend guard together.
     const run = await db.$transaction(async (tx) => {
       const current = await tx.dataForSeoSettings.findUniqueOrThrow({ where: { siteId } });
-      if (current.mode === "LIVE" && current.spentUsd + current.reservedUsd + spec.estimatedUsd > LIVE_SITE_BUDGET_USD + 1e-9) {
+      if (current.mode === "LIVE" && current.spentUsd + current.reservedUsd + reservationUsd > LIVE_SITE_BUDGET_USD + 1e-9) {
         throw new DataForSeoError("DataForSEO pilot budget reached. No paid request was sent", 402);
       }
       if (current.mode !== mode) throw new DataForSeoError("DataForSEO mode changed; retry the preview", 409);
-      if (mode === "LIVE") await tx.dataForSeoSettings.update({ where: { siteId }, data: { reservedUsd: { increment: spec.estimatedUsd } } });
+      if (mode === "LIVE") await tx.dataForSeoSettings.update({ where: { siteId }, data: { reservedUsd: { increment: reservationUsd } } });
       return tx.dataForSeoRun.create({
         data: { siteId, operation, target, mode, cacheKey: key, activeKey, status: "RESERVED", estimatedUsd: spec.estimatedUsd },
       });
@@ -284,7 +296,7 @@ async function runOne(
     });
     if (mode === "LIVE") await tx.dataForSeoSettings.update({
       where: { siteId },
-      data: { reservedUsd: { decrement: spec.estimatedUsd }, spentUsd: { increment: chargedUsd } },
+      data: { reservedUsd: { decrement: reservationUsd }, spentUsd: { increment: chargedUsd } },
     });
   });
   if (failure) throw new DataForSeoError(`DataForSEO: ${failure.message}`, 502);

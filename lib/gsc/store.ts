@@ -3,6 +3,7 @@ import { db } from "../db";
 import { toDbDate } from "./date-range";
 import type { GscReconciliation, GscReportStates } from "./reconciliation";
 import type { GscDateRange, GscMetricRow, GscReportKind } from "./types";
+import { normalizeObservedSitePageUrls } from "../operator/pages";
 
 export type { GscSyncTrigger } from "@prisma/client";
 export type GscSyncErrorCode = "NOT_FOUND" | "UNAUTHORIZED" | "NO_PROPERTY" | "REAUTH_REQUIRED" | "PROVIDER_ERROR";
@@ -188,6 +189,11 @@ export const prismaGscStore: GscStore = {
           case "page":
             await tx.gscPageDaily.deleteMany({ where });
             if (rows.length) await tx.gscPageDaily.createMany({ data: rows.map((row, i) => ({ ...row, url: dimension(input.rows[i].url) })) });
+            if (input.rows.some((row) => row.url?.startsWith("https://"))) {
+              const site = await tx.site.findUniqueOrThrow({ where: { id: input.siteId }, select: { domain: true } });
+              const urls = normalizeObservedSitePageUrls(site.domain, input.rows.map((row) => dimension(row.url)));
+              if (urls.length) await tx.sitePage.createMany({ data: urls.map((url) => ({ siteId: input.siteId, url })), skipDuplicates: true });
+            }
             break;
           case "queryPage":
             await tx.gscQueryPageDaily.deleteMany({ where });

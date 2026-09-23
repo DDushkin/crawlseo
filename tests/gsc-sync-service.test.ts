@@ -386,6 +386,12 @@ test("Prisma replacement confines all six tables to the target scope and one tra
     assert.equal(create.siteId, "site-a"); assert.equal(create.property, target.property); assert.equal(create.syncRunId, "run-a");
     return create;
   });
+  intercept(context, db.site, "findUniqueOrThrow", async () => ({ domain: "example.com" }));
+  intercept(context, db.sitePage, "createMany", async (input: { data: { siteId: string; url: string }[] }) => {
+    assert.equal(transactionActive, true);
+    assert.deepEqual(input.data, [{ siteId: "site-a", url: "https://example.com/" }]);
+    return { count: 1 };
+  });
   for (const delegate of [db.gscDailyTotal, db.gscQueryDaily, db.gscPageDaily, db.gscQueryPageDaily, db.gscDeviceDaily, db.gscCountryDaily]) {
     intercept(context, delegate, "deleteMany", async (input: unknown) => {
       assert.equal(transactionActive, true); deletes.push(input); return { count: 1 };
@@ -422,6 +428,30 @@ test("Prisma incomplete replacement writes only run count/state and preserves ca
   const count = await prismaGscStore.replaceReport({ ...report("query"), siteId: "site-a", property: target.property, runId: "run-a", searchType: "web", lease: { ownerId: "owner-a", expiresAt: now }, range: { startDate: "2026-09-06", endDate: "2026-09-12" }, rows: report("query").rows.map((row) => ({ ...row, siteId: "attacker-site" })), complete: false, truncatedAt: 250000 });
   assert.equal(count, 0);
   assert.deepEqual(updates, [{ where: { id: "run-a", siteId: "site-a" }, data: { reportCounts: { page: 3, query: 1 }, reportStates: { query: { complete: false, pagesFetched: 1, truncatedAt: 250000 } } } }]);
+});
+
+test("complete GSC page replacement discovers only site-owned canonical pages", async (context) => {
+  const inserted: { siteId: string; url: string }[] = [];
+  intercept(context, db, "$transaction", async (callback: (tx: Prisma.TransactionClient) => Promise<unknown>) => callback(db));
+  intercept(context, db.gscSyncLease, "updateMany", async () => ({ count: 1 }));
+  intercept(context, db.gscSyncRun, "findFirst", async () => ({ reportCounts: {}, reportStates: {} }));
+  intercept(context, db.gscSyncRun, "update", async () => ({}));
+  intercept(context, db.gscReportCoverage, "findFirst", async () => null);
+  intercept(context, db.gscReportCoverage, "upsert", async () => ({}));
+  intercept(context, db.gscPageDaily, "deleteMany", async () => ({ count: 0 }));
+  intercept(context, db.gscPageDaily, "createMany", async () => ({ count: 3 }));
+  intercept(context, db.site, "findUniqueOrThrow", async () => ({ domain: "example.com" }));
+  intercept(context, db.sitePage, "createMany", async (input: { data: { siteId: string; url: string }[]; skipDuplicates: boolean }) => {
+    assert.equal(input.skipDuplicates, true);
+    inserted.push(...input.data);
+    return { count: input.data.length };
+  });
+  const rows = ["https://example.com/a/", "https://example.com/a/", "https://foreign.example/b/", "https://example.com/?q=x"]
+    .map((url) => ({ ...report("page").rows[0], siteId: "site-a", url }));
+  await prismaGscStore.replaceReport({ siteId: "site-a", property: target.property, runId: "run-a", searchType: "web",
+    lease: { ownerId: "owner-a", expiresAt: now }, range: { startDate: "2026-09-06", endDate: "2026-09-12" },
+    kind: "page", rows, complete: true, pagesFetched: 1, truncatedAt: null });
+  assert.deepEqual(inserted, [{ siteId: "site-a", url: "https://example.com/a/" }]);
 });
 
 test("Prisma leases expire only the target lease and release only its matching owner", async (context) => {

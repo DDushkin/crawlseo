@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { summarizeCitationPanel, parseGscAiCsv, recentAiWindow } from "../lib/operator/ai-visibility";
+import { summarizeCitationPanel, parseGscAiCsv, recentAiWindow, summarizeAiWindow, ga4WindowCovered } from "../lib/operator/ai-visibility";
 import { classifyAiReferrer, parseGa4TrafficRows, ga4ReportRowCount } from "../lib/google/ga4-client";
 import { nextPendingPanelPrompt } from "../lib/operator/ai-panel-run";
 
@@ -29,6 +29,19 @@ test("AI dashboard window uses 28 finalized Pacific reporting days", () => {
   const window = recentAiWindow(new Date("2026-09-23T12:00:00Z"));
   assert.deepEqual({ startDate: window.startDate, endDate: window.endDate },
     { startDate: "2026-08-25", endDate: "2026-09-21" });
+});
+
+test("a partial GSC AI export is not displayed as a 28-day total", () => {
+  const window = recentAiWindow(new Date("2026-09-23T12:00:00Z"));
+  const partial = summarizeAiWindow([{ date: new Date("2026-09-21"), impressions: 23 }], window);
+  assert.deepEqual(partial, { state: "PARTIAL", impressions: null, observedImpressions: 23, observedDays: 1, expectedDays: 28 });
+  const full = summarizeAiWindow(Array.from({ length: 28 }, (_, index) => ({
+    date: new Date(Date.UTC(2026, 7, 25 + index)), impressions: 2,
+  })), window);
+  assert.equal(full.state, "COMPLETE");
+  assert.equal(full.impressions, 56);
+  assert.equal(ga4WindowCovered(new Date("2026-09-23T12:00:00Z"), window), true);
+  assert.equal(ga4WindowCovered(new Date("2026-09-10T12:00:00Z"), window), false);
 });
 
 test("panel worker advances one confirmed question at a time without repeating saved results", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { comparisonWindow, completeAction, evaluateDueChanges, observedOutcome, outcomeReady, readGscMetricWindow } from "../lib/operator/outcomes";
+import { comparisonWindow, completeAction, evaluateDueChanges, observedOutcome, outcomeReady, readGscMetricWindow, type PendingChange } from "../lib/operator/outcomes";
 
 test("change evaluation uses equal 28-day windows and skips two days around the change", () => {
   assert.deepEqual(comparisonWindow("2026-09-23", 28), {
@@ -108,15 +108,39 @@ test("complete coverage with no query row is a measured zero", async () => {
 test("evaluation saves only due changes with complete post-change coverage", async () => {
   const saved: Array<{ changeId: string; clickDelta: number | null }> = [];
   const changes = [
-    { id: "due", siteId: "site-1", actionId: "action-1", metricScope: "PAGE" as const, metricKey: "https://www.strum.capital/a", afterStart: "2026-09-25", afterEnd: "2026-10-22", baselineClicks: 40, baselineImpressions: 300 },
-    { id: "later", siteId: "site-1", actionId: "action-2", metricScope: "QUERY" as const, metricKey: "овдп", afterStart: "2026-10-01", afterEnd: "2026-10-28", baselineClicks: 10, baselineImpressions: 100 },
-    { id: "incomplete", siteId: "site-1", actionId: "action-3", metricScope: "PAGE" as const, metricKey: "https://www.strum.capital/b", afterStart: "2026-09-25", afterEnd: "2026-10-22", baselineClicks: 20, baselineImpressions: 200 },
+    { id: "due", siteId: "site-1", actionId: "action-1", metricScope: "PAGE" as const, metricKey: "https://www.strum.capital/a", baselineStart: "2026-08-24", baselineEnd: "2026-09-20", afterStart: "2026-09-25", afterEnd: "2026-10-22", baselineClicks: 40, baselineImpressions: 300 },
+    { id: "later", siteId: "site-1", actionId: "action-2", metricScope: "QUERY" as const, metricKey: "овдп", baselineStart: "2026-08-24", baselineEnd: "2026-09-20", afterStart: "2026-10-01", afterEnd: "2026-10-28", baselineClicks: 10, baselineImpressions: 100 },
+    { id: "incomplete", siteId: "site-1", actionId: "action-3", metricScope: "PAGE" as const, metricKey: "https://www.strum.capital/b", baselineStart: "2026-08-24", baselineEnd: "2026-09-20", afterStart: "2026-09-25", afterEnd: "2026-10-22", baselineClicks: 20, baselineImpressions: 200 },
   ];
   const result = await evaluateDueChanges("site-1", "2026-10-25", {
     listPending: async (siteId: string) => { assert.equal(siteId, "site-1"); return changes; },
     readMetrics: async (_siteId: string, _scope: string, key: string | null) => key?.endsWith("/b") ? null : { clicks: 50, impressions: 350 },
+    saveBaseline: async () => {},
     saveOutcome: async (input: { changeId: string; clickDelta: number | null }) => { saved.push({ changeId: input.changeId, clickDelta: input.clickDelta }); },
   });
   assert.deepEqual(saved, [{ changeId: "due", clickDelta: 10 }]);
   assert.deepEqual(result, { evaluated: 1, pending: 2 });
+});
+
+test("missing baseline stays pending until a complete backfill allows an observed outcome", async () => {
+  const saved: string[] = [];
+  let baseline: { clicks: number; impressions: number } | null = null;
+  const change: PendingChange = { id: "change-1", siteId: "site-1", actionId: "action-1", metricScope: "PAGE",
+    metricKey: "https://www.strum.capital/a", baselineStart: "2026-08-24", baselineEnd: "2026-09-20",
+    afterStart: "2026-09-25", afterEnd: "2026-10-22", baselineClicks: null, baselineImpressions: null };
+  const store = {
+    listPending: async () => [change],
+    readMetrics: async (_siteId: string, _scope: string, _key: string | null, range: { startDate: string }) =>
+      range.startDate === change.baselineStart ? baseline : { clicks: 12, impressions: 120 },
+    saveBaseline: async (input: { baselineClicks: number; baselineImpressions: number }) => {
+      change.baselineClicks = input.baselineClicks;
+      change.baselineImpressions = input.baselineImpressions;
+    },
+    saveOutcome: async (input: { status: string; clickDelta: number | null }) => { saved.push(`${input.status}:${input.clickDelta}`); },
+  };
+  assert.deepEqual(await evaluateDueChanges("site-1", "2026-10-25", store), { evaluated: 0, pending: 1 });
+  assert.deepEqual(saved, []);
+  baseline = { clicks: 10, impressions: 100 };
+  assert.deepEqual(await evaluateDueChanges("site-1", "2026-10-25", store), { evaluated: 1, pending: 0 });
+  assert.deepEqual(saved, ["OBSERVED:2"]);
 });

@@ -44,3 +44,20 @@ export function recentAiWindow(now = new Date()) {
   const startDate = new Date(pacificToday.getTime() - 29 * 86_400_000).toISOString().slice(0, 10);
   return { startDate, endDate, db: { gte: toDbDate(startDate), lte: toDbDate(endDate) } };
 }
+
+export function summarizeAiWindow(rows: { date: Date; impressions: number }[], window: { startDate: string; endDate: string }) {
+  const expectedDays = Math.round((Date.parse(`${window.endDate}T00:00:00Z`) - Date.parse(`${window.startDate}T00:00:00Z`)) / 86_400_000) + 1;
+  const observedDays = new Set(rows.map((row) => row.date.toISOString().slice(0, 10))).size;
+  const observedImpressions = rows.reduce((sum, row) => sum + row.impressions, 0);
+  const state = observedDays === 0 ? "UNAVAILABLE" as const : observedDays === expectedDays ? "COMPLETE" as const : "PARTIAL" as const;
+  return { state, impressions: state === "COMPLETE" ? observedImpressions : null, observedImpressions, observedDays, expectedDays };
+}
+
+/** GA4 sync replaces the entire trailing 90-day UTC report, including measured zero days. */
+export function ga4WindowCovered(lastSync: Date | null, window: { startDate: string; endDate: string }) {
+  if (!lastSync) return false;
+  const syncDay = lastSync.toISOString().slice(0, 10);
+  const earliest = new Date(Date.parse(`${syncDay}T00:00:00Z`) - 91 * 86_400_000).toISOString().slice(0, 10);
+  const latest = new Date(Date.parse(`${syncDay}T00:00:00Z`) - 2 * 86_400_000).toISOString().slice(0, 10);
+  return window.startDate >= earliest && window.endDate <= latest;
+}

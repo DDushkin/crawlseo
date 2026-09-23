@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { toDbDate } from "@/lib/gsc/date-range";
-import { hasCompleteGscReportCoverage } from "@/lib/seo-metrics";
+import { hasV2CompleteGscReportCoverage } from "@/lib/gsc/read-model";
 import {
   readGscMetricWindow,
   type CompletionStore,
@@ -11,11 +11,13 @@ import {
 
 export const prismaGscMetricReader: GscMetricReader = {
   async siteScope(siteId) {
-    const site = await db.site.findUnique({ where: { id: siteId }, select: { gscProperty: true, gscSearchType: true } });
-    return site?.gscProperty ? { property: site.gscProperty, searchType: site.gscSearchType } : null;
+    if (process.env.GSC_READ_MODEL_V2 === "false") return null;
+    const site = await db.site.findUnique({ where: { id: siteId }, select: { gscProperty: true, gscSearchType: true, gscDataVersion: true } });
+    return site?.gscProperty && site.gscDataVersion === 2 ? { property: site.gscProperty, searchType: site.gscSearchType } : null;
   },
-  completeCoverage(siteId, report, range) {
-    return hasCompleteGscReportCoverage(siteId, report === "total" ? "dailyTotal" : report, range);
+  async completeCoverage(siteId, report, range) {
+    const scope = await this.siteScope(siteId);
+    return scope ? hasV2CompleteGscReportCoverage({ siteId, ...scope }, report === "total" ? "dailyTotal" : report, range) : false;
   },
   async sumMetrics(scope, siteId, property, searchType, key, range) {
     const common = {
@@ -72,16 +74,17 @@ export const prismaEvaluationStore: EvaluationStore = {
     const changes = await db.seoChange.findMany({
       where: { siteId, outcome: { is: null } },
       orderBy: { afterEnd: "asc" },
-      take: 100,
       select: {
         id: true, siteId: true, actionId: true, metricScope: true, metricKey: true,
-        afterStart: true, afterEnd: true, baselineClicks: true, baselineImpressions: true,
+        baselineStart: true, baselineEnd: true, afterStart: true, afterEnd: true, baselineClicks: true, baselineImpressions: true,
       },
     });
     return changes.map((change) => {
       if (!["PAGE", "QUERY", "PROPERTY"].includes(change.metricScope)) throw new Error("Unknown SEO change metric scope");
       return {
         ...change, metricScope: change.metricScope as MetricScope,
+        baselineStart: change.baselineStart.toISOString().slice(0, 10),
+        baselineEnd: change.baselineEnd.toISOString().slice(0, 10),
         afterStart: change.afterStart.toISOString().slice(0, 10),
         afterEnd: change.afterEnd.toISOString().slice(0, 10),
       };
@@ -89,6 +92,11 @@ export const prismaEvaluationStore: EvaluationStore = {
   },
   readMetrics(siteId, scope, key, range) {
     return readGscMetricWindow(siteId, scope, key, range, prismaGscMetricReader);
+  },
+  async saveBaseline(input) {
+    return db.seoChange.updateMany({ where: { id: input.changeId, siteId: input.siteId, actionId: input.actionId,
+      baselineClicks: null, baselineImpressions: null, outcome: { is: null } },
+      data: { baselineClicks: input.baselineClicks, baselineImpressions: input.baselineImpressions } });
   },
   async saveOutcome(input) {
     const ownedChange = await db.seoChange.findFirst({

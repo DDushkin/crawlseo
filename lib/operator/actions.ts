@@ -73,22 +73,26 @@ export function validateActionTransition(from: ActionStatus, to: ActionStatus) {
 export async function upsertDetectedAction(
   siteId: string,
   finding: DetectedFinding,
-  repository: Pick<typeof db, "seoAction"> = db,
+  repository: Pick<typeof db, "seoAction" | "sitePage"> = db,
 ) {
   const fingerprint = actionFingerprint(finding);
   const priority = priorityForFinding(finding);
   const evidence = finding.evidence as Prisma.InputJsonValue;
+  const page = finding.pageUrl ? await repository.sitePage.findUnique({
+    where: { siteId_url: { siteId, url: finding.pageUrl } }, select: { id: true },
+  }) : null;
   return repository.seoAction.upsert({
     where: { siteId_fingerprint: { siteId, fingerprint } },
     create: {
       siteId, fingerprint, type: finding.type, title: finding.title,
       rationale: finding.rationale, recommendation: finding.recommendation,
-      pageUrl: finding.pageUrl ?? null, query: finding.query ?? null,
+      pageId: page?.id ?? null, pageUrl: finding.pageUrl ?? null, query: finding.query ?? null,
       evidence, expectedClicks: finding.expectedClicks,
       confidence: finding.confidence, effort: finding.effort,
       severity: finding.severity, priority, signalActive: true,
     },
     update: {
+      ...(page ? { pageId: page.id } : {}),
       title: finding.title, rationale: finding.rationale, recommendation: finding.recommendation,
       evidence, expectedClicks: finding.expectedClicks,
       confidence: finding.confidence, effort: finding.effort,

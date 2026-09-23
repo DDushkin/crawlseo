@@ -8,7 +8,7 @@ export function normalizeAiPrompt(input: AiPromptInput) {
   const country = input.country.trim().toUpperCase();
   const language = input.language.trim().toLowerCase();
   const platform = input.platform || "CHATGPT_WEB";
-  if (question.length < 8 || question.length > 300) throw new Error("Question must be 8–300 characters");
+  if (question.length < 8 || question.length > 200) throw new Error("Question must be 8–200 characters");
   if (!/^[A-Z]{2}$/.test(country) || !/^[a-z]{2}$/.test(language)) throw new Error("Use two-letter country and language codes");
   if (platform !== "CHATGPT_WEB") throw new Error("Only ChatGPT web search is supported for this panel");
   const intent = input.intent?.trim() || null;

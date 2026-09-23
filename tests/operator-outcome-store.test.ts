@@ -22,6 +22,17 @@ test("page outcome reads only that site's property, search type, URL and date ra
   assert.deepEqual(result, { clicks: 40, impressions: 300 });
 });
 
+test("outcome reader refuses V2 metric reads during legacy rollback or before a V2 sync", async (t) => {
+  let version = 1;
+  intercept(t, db.site, "findUnique", async () => ({ gscProperty: "sc-domain:strum.capital", gscSearchType: "web", gscDataVersion: version }));
+  assert.equal(await prismaGscMetricReader.siteScope("site-1"), null);
+  version = 2;
+  const previous = process.env.GSC_READ_MODEL_V2;
+  process.env.GSC_READ_MODEL_V2 = "false";
+  t.after(() => { if (previous === undefined) delete process.env.GSC_READ_MODEL_V2; else process.env.GSC_READ_MODEL_V2 = previous; });
+  assert.equal(await prismaGscMetricReader.siteScope("site-1"), null);
+});
+
 test("completion refuses a stale status inside its transaction", async (t) => {
   intercept(t, db, "$transaction", async (fn: (tx: object) => Promise<unknown>) => fn({
     seoAction: { updateMany: async () => ({ count: 0 }) },
@@ -38,7 +49,9 @@ test("completion refuses a stale status inside its transaction", async (t) => {
 test("evaluation selects only pending changes for the requested site", async (t) => {
   intercept(t, db.seoChange, "findMany", async (args: { where: Record<string, unknown> }) => {
     assert.deepEqual(args.where, { siteId: "site-1", outcome: { is: null } });
+    assert.equal("take" in args, false, "missing old baselines must not starve later changes");
     return [{ id: "change-1", siteId: "site-1", actionId: "action-1", metricScope: "PAGE", metricKey: "https://www.strum.capital/a",
+      baselineStart: new Date("2026-08-24T00:00:00.000Z"), baselineEnd: new Date("2026-09-20T00:00:00.000Z"),
       afterStart: new Date("2026-09-25T00:00:00.000Z"), afterEnd: new Date("2026-10-22T00:00:00.000Z"), baselineClicks: 40, baselineImpressions: 300 }];
   });
   const changes = await prismaEvaluationStore.listPending("site-1");

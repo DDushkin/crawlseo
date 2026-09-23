@@ -52,6 +52,10 @@ export type AiCitationSample = {
   sources: Array<{ domain: string; url: string; title: string }>;
 };
 
+export type SerpBriefEvidence = { observedAt: string | null; locationCode: number | null; languageCode: string | null;
+  organic: Array<{ url: string; domain: string; title: string; description: string; position: number | null }>;
+  questions: string[]; relatedSearches: string[] };
+
 type DataForSeoResponse = { tasks?: Array<{ result?: Array<Record<string, unknown>> }> };
 type KeywordItem = {
   keyword?: string;
@@ -148,6 +152,23 @@ export function parseCompetitorGap(data: DataForSeoResponse): CompetitorGapItem[
       competitorUrl: row.first_domain_serp_element?.url ?? null,
     }];
   });
+}
+
+export function parseSerpBrief(data: DataForSeoResponse): SerpBriefEvidence {
+  const result = firstResult(data) as { datetime?: string; location_code?: number; language_code?: string; items?: unknown[] } | undefined;
+  const task = data.tasks?.[0] as { data?: { location_code?: number; language_code?: string } } | undefined;
+  const items = Array.isArray(result?.items) ? result.items as Array<Record<string, unknown>> : [];
+  const organic = items.filter((item) => item.type === "organic" && typeof item.url === "string")
+    .slice(0, 10).map((item) => ({ url: item.url as string, domain: typeof item.domain === "string" ? item.domain : "",
+      title: typeof item.title === "string" ? item.title : "", description: typeof item.description === "string" ? item.description : "",
+      position: typeof item.rank_group === "number" ? item.rank_group : null }));
+  const childText = (type: string, key: "title" | "keyword") => [...new Set(items.filter((item) => item.type === type)
+    .flatMap((item) => Array.isArray(item.items) ? item.items as unknown[] : [])
+    .map((item) => typeof item === "string" ? item : item && typeof item === "object" ? (item as Record<string, unknown>)[key] : null)
+    .filter((value): value is string => typeof value === "string" && !!value.trim()))].slice(0, 20);
+  return { observedAt: result?.datetime ?? null, locationCode: result?.location_code ?? task?.data?.location_code ?? null,
+    languageCode: result?.language_code ?? task?.data?.language_code ?? null, organic,
+    questions: childText("people_also_ask", "title"), relatedSearches: childText("related_searches", "keyword") };
 }
 
 export function parsePlacementCheck(data: DataForSeoResponse, sourceUrl: string) {

@@ -25,10 +25,13 @@ test("repeat detection refreshes evidence but does not reset the user's status",
   let where: unknown;
   let update: Record<string, unknown> | undefined;
   const repository = {
+    sitePage: { findUnique: async () => ({ id: "page-1" }) },
     seoAction: {
-      upsert: async (args: { where: unknown; update: Record<string, unknown> }) => {
+      upsert: async (args: { where: unknown; create: Record<string, unknown>; update: Record<string, unknown> }) => {
         where = args.where;
         update = args.update;
+        assert.equal(args.create.pageId, "page-1");
+        assert.equal(args.update.pageId, "page-1");
         return { id: "action-1", status: "PLANNED" };
       },
     },

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildWeeklyReport, weeklyWindow } from "../lib/operator/weekly-report";
+import { buildWeeklyReport, weeklyWindow, weeklyGscEvidenceState } from "../lib/operator/weekly-report";
 
 test("weekly report uses equal finalized Pacific GSC weeks", () => {
   const window = weeklyWindow(new Date("2026-09-23T12:00:00Z"));
@@ -8,6 +8,14 @@ test("weekly report uses equal finalized Pacific GSC weeks", () => {
     current: { startDate: "2026-09-15", endDate: "2026-09-21" },
     previous: { startDate: "2026-09-08", endDate: "2026-09-14" },
   });
+});
+
+test("weekly report distinguishes no GSC V2 evidence from partial coverage", () => {
+  const window = weeklyWindow(new Date("2026-09-23T12:00:00Z"));
+  assert.equal(weeklyGscEvidenceState(false, null, window, new Date("2026-09-23T12:00:00Z")), "UNAVAILABLE");
+  assert.equal(weeklyGscEvidenceState(true, null, window, new Date("2026-09-23T12:00:00Z")), "UNAVAILABLE");
+  assert.equal(weeklyGscEvidenceState(true, { startDate: "2026-09-15", endDate: "2026-09-21" }, window, new Date("2026-09-23T12:00:00Z")), "PARTIAL");
+  assert.equal(weeklyGscEvidenceState(true, { startDate: "2026-09-08", endDate: "2026-09-21" }, window, new Date("2026-09-23T12:00:00Z")), "FRESH");
 });
 
 test("weekly report keeps missing first-party data unavailable while retaining free crawler and action work", () => {

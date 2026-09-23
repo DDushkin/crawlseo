@@ -2,7 +2,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { previewAiPanel } from "@/lib/operator/ai-panel-run";
-import { recentAiWindow, summarizeCitationPanel } from "@/lib/operator/ai-visibility";
+import { ga4WindowCovered, recentAiWindow, summarizeAiWindow, summarizeCitationPanel } from "@/lib/operator/ai-visibility";
+import { MAX_REQUEST_USD } from "@/lib/dataforseo/gateway";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ siteId: string }> }) {
   const session = await auth();
@@ -20,11 +21,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ siteId:
   ]);
   return Response.json({ property: site.gscProperty, ga4PropertyId: site.ga4PropertyId, lastGa4SyncAt: site.lastGa4SyncAt,
     window: { startDate: window.startDate, endDate: window.endDate },
-    googleAi: { source: "GSC_EXPORT", impressions: gscAi.reduce((sum, day) => sum + day.impressions, 0), days: gscAi },
-    aiReferrals: { source: "GA4", sessions: referrals.reduce((sum, day) => sum + day.sessions, 0),
-      keyEvents: referrals.reduce((sum, day) => sum + day.keyEvents, 0), days: referrals },
-    organic: { source: "GA4", sessions: organic.reduce((sum, day) => sum + day.sessions, 0),
-      keyEvents: organic.reduce((sum, day) => sum + day.keyEvents, 0), days: organic },
+    googleAi: { source: "GSC_EXPORT", ...summarizeAiWindow(gscAi, window), days: gscAi },
+    aiReferrals: { source: "GA4", state: ga4WindowCovered(site.lastGa4SyncAt, window) ? "COMPLETE" : "UNAVAILABLE",
+      sessions: ga4WindowCovered(site.lastGa4SyncAt, window) ? referrals.reduce((sum, day) => sum + day.sessions, 0) : null,
+      keyEvents: ga4WindowCovered(site.lastGa4SyncAt, window) ? referrals.reduce((sum, day) => sum + day.keyEvents, 0) : null, days: referrals },
+    organic: { source: "GA4", state: ga4WindowCovered(site.lastGa4SyncAt, window) ? "COMPLETE" : "UNAVAILABLE",
+      sessions: ga4WindowCovered(site.lastGa4SyncAt, window) ? organic.reduce((sum, day) => sum + day.sessions, 0) : null,
+      keyEvents: ga4WindowCovered(site.lastGa4SyncAt, window) ? organic.reduce((sum, day) => sum + day.keyEvents, 0) : null, days: organic },
     panelRuns: runs.map((run) => ({ ...run, summary: summarizeCitationPanel({ mode: run.mode, promptCount: run.promptCount,
       results: run.results.map((result) => ({ status: result.status, siteCited: result.siteCited,
         sources: Array.isArray(result.sources) ? result.sources as { domain: string; url: string }[] : [] })) }) })),
@@ -51,6 +54,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteId:
     }
     if (preview.mode === "LIVE" && preview.estimatedUsd + preview.spentUsd + preview.reservedUsd > preview.budgetUsd) {
       return Response.json({ error: "Panel exceeds the site DataForSEO budget" }, { status: 409 });
+    }
+    if (preview.mode === "LIVE" && preview.uncachedRequests > 0 && preview.spentUsd + preview.reservedUsd + MAX_REQUEST_USD > preview.budgetUsd) {
+      return Response.json({ error: "Insufficient site budget for the next conservative request reservation" }, { status: 409 });
     }
     const run = await db.aiVisibilityRun.create({ data: { siteId, activeKey: siteId, mode: preview.mode,
       locationCode: preview.locationCode, languageCode: preview.languageCode, promptCount: preview.prompts.length,

@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
-import test from "node:test";
-import { compareCrawlIssues, crawlActionShouldDeactivate } from "../lib/operator/crawl-diff";
+import test, { type TestContext } from "node:test";
+import { compareCrawlIssues, compareAndStoreCompletedCrawl, crawlActionShouldDeactivate } from "../lib/operator/crawl-diff";
 import { normalizePlacement, placementTotals, matchingArticleLinks, isPublicAddress, extractArticleLinks } from "../lib/operator/placements";
+import { db } from "../lib/db";
+
+function intercept(t: TestContext, target: object, method: string, fn: (...args: never[]) => unknown) {
+  const original = Object.getOwnPropertyDescriptor(target, method);
+  Object.defineProperty(target, method, { configurable: true, value: fn });
+  t.after(() => { if (original) Object.defineProperty(target, method, original); else Reflect.deleteProperty(target, method); });
+}
 
 test("crawl comparison classifies new, persistent, and resolved issues without treating a failed crawl as baseline", () => {
   const prior = [
@@ -19,6 +26,28 @@ test("crawl comparison classifies new, persistent, and resolved issues without t
   assert.equal(crawlActionShouldDeactivate({ status: "RESOLVED", severity: "CRITICAL" }, true), true);
   assert.equal(crawlActionShouldDeactivate({ status: "PERSISTENT", severity: "WARNING" }, true), true);
   assert.equal(crawlActionShouldDeactivate({ status: "RESOLVED", severity: "CRITICAL" }, false), false);
+});
+
+test("crawl comparison and action writes share one transaction so failed actions can be retried", async (t) => {
+  const current = { id: "crawl-1", finishedAt: new Date("2026-09-23"), auditPages: [],
+    issues: [{ url: "https://strum.capital/missing", type: "BROKEN_LINK", severity: "CRITICAL", message: "404", details: null }] };
+  intercept(t, db.crawl, "findFirst", async ({ where }: { where: { id?: string } }) => where.id ? current : null);
+  intercept(t, db.site, "findUniqueOrThrow", async () => ({ domain: "strum.capital" }));
+  intercept(t, db.crawlComparison, "findUnique", async () => null);
+  let createdInsideTransaction = false;
+  let committed = false;
+  intercept(t, db, "$transaction", async (callback: (tx: object) => Promise<unknown>) => {
+    const result = await callback({
+      crawlComparison: { create: async () => { createdInsideTransaction = true; return { id: "comparison-1" }; } },
+      sitePage: { findUnique: async () => null },
+      seoAction: { upsert: async () => { assert.equal(createdInsideTransaction, true); throw new Error("action write failed"); } },
+    });
+    committed = true;
+    return result;
+  });
+  await assert.rejects(compareAndStoreCompletedCrawl("site-1", "crawl-1"), /action write failed/);
+  assert.equal(createdInsideTransaction, true);
+  assert.equal(committed, false);
 });
 
 test("article verification blocks private addresses and recognizes exact HTML links", () => {

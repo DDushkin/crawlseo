@@ -24,6 +24,11 @@ test("AI prompt identity is stable across whitespace/case but market-specific", 
   assert.notEqual(promptFingerprint(one), promptFingerprint({ ...one, country: "PL" }));
 });
 
+test("AI prompts cannot exceed the executable DataForSEO question limit", () => {
+  assert.throws(() => normalizeAiPrompt({ question: "q".repeat(201), country: "UA", language: "uk" }), /200 characters/);
+  assert.equal(normalizeAiPrompt({ question: "q".repeat(200), country: "UA", language: "uk" }).question.length, 200);
+});
+
 test("AI prompt route refuses foreign site before saving", async (t) => {
   intercept(t, db.site, "findFirst", async () => null);
   intercept(t, db.aiPrompt, "upsert", async () => { throw new Error("foreign prompt saved"); });

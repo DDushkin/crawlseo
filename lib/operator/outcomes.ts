@@ -108,6 +108,7 @@ export async function completeAction(siteId: string, actionId: string, input: Co
 export type PendingChange = {
   id: string; siteId: string; actionId: string;
   metricScope: MetricScope; metricKey: string | null;
+  baselineStart: string; baselineEnd: string;
   afterStart: string; afterEnd: string;
   baselineClicks: number | null; baselineImpressions: number | null;
 };
@@ -115,6 +116,7 @@ export type PendingChange = {
 export type EvaluationStore = {
   listPending(siteId: string): Promise<PendingChange[]>;
   readMetrics(siteId: string, scope: MetricScope, key: string | null, range: MetricRange): Promise<MetricTotals | null>;
+  saveBaseline(input: { siteId: string; actionId: string; changeId: string; baselineClicks: number; baselineImpressions: number }): Promise<unknown>;
   saveOutcome(input: {
     siteId: string; actionId: string; changeId: string;
     status: "OBSERVED" | "UNAVAILABLE";
@@ -131,12 +133,24 @@ export async function evaluateDueChanges(siteId: string, asOf: string, store: Ev
   let pending = 0;
   for (const change of changes) {
     if (change.siteId !== siteId || !outcomeReady(change.afterEnd, asOf)) { pending++; continue; }
+    let baselineClicks = change.baselineClicks;
+    let baselineImpressions = change.baselineImpressions;
+    if (baselineClicks === null || baselineImpressions === null) {
+      const baseline = await store.readMetrics(siteId, change.metricScope, change.metricKey, {
+        startDate: change.baselineStart, endDate: change.baselineEnd,
+      });
+      if (!baseline) { pending++; continue; }
+      baselineClicks = baseline.clicks;
+      baselineImpressions = baseline.impressions;
+      await store.saveBaseline({ siteId, actionId: change.actionId, changeId: change.id,
+        baselineClicks, baselineImpressions });
+    }
     const after = await store.readMetrics(siteId, change.metricScope, change.metricKey, {
       startDate: change.afterStart, endDate: change.afterEnd,
     });
     if (!after) { pending++; continue; }
     const outcome = observedOutcome({
-      baselineClicks: change.baselineClicks, baselineImpressions: change.baselineImpressions,
+      baselineClicks, baselineImpressions,
       afterClicks: after.clicks, afterImpressions: after.impressions,
     });
     await store.saveOutcome({

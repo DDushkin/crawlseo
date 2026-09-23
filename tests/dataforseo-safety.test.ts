@@ -121,8 +121,8 @@ test("Live records the provider-reported charge and releases its reservation", a
   assert.equal(result.chargedUsd, 0.018);
   assert.equal(transactionCount, 2);
   assert.deepEqual(settingsUpdates, [
-    { reservedUsd: { increment: 0.025 } },
-    { reservedUsd: { decrement: 0.025 }, spentUsd: { increment: 0.018 } },
+    { reservedUsd: { increment: 0.06 } },
+    { reservedUsd: { decrement: 0.06 }, spentUsd: { increment: 0.018 } },
   ]);
 });
 

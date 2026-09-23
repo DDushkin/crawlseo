@@ -27,12 +27,16 @@ import { filterIssuesForSearchCandidates } from "@/lib/crawler/analysis";
 import { REMEDIATION } from "@/lib/crawler/remediation";
 import { actionFingerprint, upsertDetectedAction } from "./actions";
 import { Prisma } from "@prisma/client";
+import { normalizeObservedSitePageUrls } from "./pages";
 
 /** Only a finalized successful crawl can replace the comparison baseline. */
 export async function compareAndStoreCompletedCrawl(siteId: string, crawlId: string) {
   const current = await db.crawl.findFirst({ where: { id: crawlId, siteId, status: "COMPLETED" },
     include: { issues: true, auditPages: true } });
   if (!current?.finishedAt) return null;
+  const site = await db.site.findUniqueOrThrow({ where: { id: siteId }, select: { domain: true } });
+  const observedUrls = normalizeObservedSitePageUrls(site.domain, current.auditPages.map((page) => page.url));
+  if (observedUrls.length) await db.sitePage.createMany({ data: observedUrls.map((url) => ({ siteId, url })), skipDuplicates: true });
   const existing = await db.crawlComparison.findUnique({ where: { crawlId } });
   if (existing) return existing;
   const baseline = await db.crawl.findFirst({ where: { siteId, status: "COMPLETED", finishedAt: { lt: current.finishedAt } },
@@ -51,34 +55,35 @@ export async function compareAndStoreCompletedCrawl(siteId: string, crawlId: str
   const counts = { newCount: findings.filter((item) => item.status === "NEW").length,
     persistentCount: findings.filter((item) => item.status === "PERSISTENT").length,
     resolvedCount: findings.filter((item) => item.status === "RESOLVED").length };
-  let comparison;
   try {
-    comparison = await db.crawlComparison.create({ data: { siteId, crawlId,
-      baselineCrawlId: baseline?.id ?? null, ...counts,
-      findings: { create: findings.map((item) => ({ siteId, fingerprint: item.fingerprint,
-        url: item.url, type: item.type, severity: item.severity, status: item.status,
-        message: item.message, details: item.details == null ? undefined : item.details as Prisma.InputJsonValue })) } } });
+    return await db.$transaction(async (tx) => {
+      const comparison = await tx.crawlComparison.create({ data: { siteId, crawlId,
+        baselineCrawlId: baseline?.id ?? null, ...counts,
+        findings: { create: findings.map((item) => ({ siteId, fingerprint: item.fingerprint,
+          url: item.url, type: item.type, severity: item.severity, status: item.status,
+          message: item.message, details: item.details == null ? undefined : item.details as Prisma.InputJsonValue })) } } });
+      const actionable = baseline ? findings : currentIssues.map((item) => ({ ...item, status: "BASELINE" as const }));
+      for (const item of actionable) {
+        if (baseline && crawlActionShouldDeactivate(item, seenUrls.has(item.url))) {
+          await tx.seoAction.updateMany({ where: { siteId, fingerprint: actionFingerprint({ type: `CRAWL_${item.type}`, pageUrl: item.url }),
+            signalActive: true }, data: { signalActive: false } });
+        }
+        if (item.status === "RESOLVED" || item.severity !== "CRITICAL") continue;
+        const remediation = REMEDIATION[item.type];
+        await upsertDetectedAction(siteId, { type: `CRAWL_${item.type}`, pageUrl: item.url,
+          title: remediation?.title ?? item.type.replaceAll("_", " "),
+          rationale: item.message,
+          recommendation: remediation?.howToFix ?? "Investigate this issue on the affected URL.",
+          severity: "critical", confidence: "high", effort: "medium", expectedClicks: null,
+          evidence: { source: "Crawler", crawlId, baselineCrawlId: baseline?.id ?? null,
+            status: item.status, observedAt: current.finishedAt!.toISOString() } }, tx);
+      }
+      return comparison;
+    });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return db.crawlComparison.findUnique({ where: { crawlId } });
     }
     throw error;
   }
-  const actionable = baseline ? findings : currentIssues.map((item) => ({ ...item, status: "BASELINE" as const }));
-  for (const item of actionable) {
-    if (baseline && crawlActionShouldDeactivate(item, seenUrls.has(item.url))) {
-      await db.seoAction.updateMany({ where: { siteId, fingerprint: actionFingerprint({ type: `CRAWL_${item.type}`, pageUrl: item.url }),
-        signalActive: true }, data: { signalActive: false } });
-    }
-    if (item.status === "RESOLVED" || item.severity !== "CRITICAL") continue;
-    const remediation = REMEDIATION[item.type];
-    await upsertDetectedAction(siteId, { type: `CRAWL_${item.type}`, pageUrl: item.url,
-      title: remediation?.title ?? item.type.replaceAll("_", " "),
-      rationale: item.message,
-      recommendation: remediation?.howToFix ?? "Investigate this issue on the affected URL.",
-      severity: "critical", confidence: "high", effort: "medium", expectedClicks: null,
-      evidence: { source: "Crawler", crawlId, baselineCrawlId: baseline?.id ?? null,
-        status: item.status, observedAt: current.finishedAt.toISOString() } });
-  }
-  return comparison;
 }

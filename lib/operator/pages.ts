@@ -14,6 +14,16 @@ export function normalizeSitePageUrl(siteDomain: string, input: string) {
   return url.toString();
 }
 
+/** Provider/crawler URLs are observations, not a license to add external or parameterized pages. */
+export function normalizeObservedSitePageUrls(siteDomain: string, urls: string[]) {
+  const valid = new Set<string>();
+  for (const url of urls) {
+    try { valid.add(normalizeSitePageUrl(siteDomain, url)); }
+    catch { /* Keep non-canonical observations in their source report, not the managed inventory. */ }
+  }
+  return [...valid];
+}
+
 export function normalizeTargetQuery(query: string) {
   const normalized = query.trim().replace(/\s+/g, " ").toLocaleLowerCase();
   if (normalized.length < 2 || normalized.length > 200) throw new Error("Keyword must be 2–200 characters");
