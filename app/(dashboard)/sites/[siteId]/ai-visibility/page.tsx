@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { AiPanelRunControl, Ga4Controls, GscAiImportControl } from "@/components/operator/ai-visibility-controls";
-import { ga4WindowCovered, recentAiWindow, summarizeAiWindow, summarizeCitationPanel } from "@/lib/operator/ai-visibility";
+import { compareCitationPanels, ga4WindowCovered, recentAiWindow, summarizeAiWindow, summarizeCitationPanel, summarizeCitationSources } from "@/lib/operator/ai-visibility";
 
 export default async function AiVisibilityPage({ params }: { params: Promise<{ siteId: string }> }) {
   const session = await auth(); const { siteId } = await params;
@@ -22,6 +22,12 @@ export default async function AiVisibilityPage({ params }: { params: Promise<{ s
     db.apiKey.findUnique({ where: { userId_provider: { userId, provider: "dataforseo" } }, select: { id: true } }),
   ]);
   const latestLive = runs.find((run) => run.mode === "LIVE" && ["COMPLETE", "PARTIAL"].includes(run.status));
+  const completeLiveRuns = runs.filter((run) => run.mode === "LIVE" && run.status === "COMPLETE");
+  const panelChange = completeLiveRuns.length > 1 ? compareCitationPanels(completeLiveRuns[0], completeLiveRuns[1]) : null;
+  const sourceSummary = latestLive ? summarizeCitationSources(site.domain, latestLive.results.map((result) => ({
+    status: result.status, sources: Array.isArray(result.sources) ? (result.sources as { domain: string; url: string }[])
+      .filter((source) => source && typeof source.url === "string") : [],
+  }))) : null;
   const latestSummary = latestLive ? summarizeCitationPanel({ mode: latestLive.mode, promptCount: latestLive.promptCount,
     results: latestLive.results.map((result) => ({ status: result.status, siteCited: result.siteCited, sources: [] })) }) : null;
   const activeRun = runs.find((run) => run.status === "QUEUED" || run.status === "RUNNING") ?? null;
@@ -40,6 +46,13 @@ export default async function AiVisibilityPage({ params }: { params: Promise<{ s
       promptCount: activeRun.promptCount, completedCount: activeRun.results.length } : null} /></div>
     <div className="mt-5 grid gap-4 lg:grid-cols-2"><section className="panel p-5"><h2 className="font-heading text-lg font-semibold">Recent Google AI imports</h2>{imports.length ? <ul className="mt-3 space-y-2 text-sm">{imports.map((item) => <li key={item.id}>{item.importedAt.toISOString().slice(0, 10)} · {item.firstDate.toISOString().slice(0, 10)} to {item.lastDate.toISOString().slice(0, 10)} · {item.rowCount} days · {item.fileName}</li>)}</ul> : <p className="mt-2 text-sm text-muted-foreground">No export imported. The report may be unavailable if Google has insufficient impressions for this property.</p>}<a className="mt-3 inline-block text-xs text-signal hover:underline" href="https://support.google.com/webmasters/answer/16984139?hl=en" target="_blank" rel="noopener noreferrer">Google report documentation</a></section>
       <section className="panel p-5"><h2 className="font-heading text-lg font-semibold">GA4 organic context · 28 days</h2><p className="mt-3 text-2xl font-semibold">{ga4Ready ? organicDays.reduce((sum, day) => sum + day.sessions, 0).toLocaleString() : "Unavailable"}</p><p className="text-xs text-muted-foreground">Organic Search sessions · {ga4Ready ? `${organicDays.reduce((sum, day) => sum + day.keyEvents, 0)} key events` : "refresh GA4 for this window"}</p><p className="mt-3 text-xs text-muted-foreground">This is a separate GA4 outcome metric, not a Search Console click count.</p></section></div>
+    <section className="panel mt-5 p-5"><h2 className="font-heading text-lg font-semibold">What the sampled answers cited</h2>
+      <p className="mt-1 text-xs text-muted-foreground">Latest live panel only · {latestLive ? latestLive.startedAt.toISOString().slice(0, 10) : "no observation"}. Counts are answers containing a source, not real-user prompt volume or share of voice.</p>
+      {panelChange ? <p className="mt-3 text-sm">Compared with the previous complete run of the same questions and market: {panelChange.newlyCited.length} newly cited, {panelChange.lostCitations.length} lost citations.{panelChange.newlyCited.length || panelChange.lostCitations.length ? " Review the affected questions in history below." : ""}</p>
+        : <p className="mt-3 text-sm text-muted-foreground">Trend unavailable until two complete live runs use the same fixed question panel and market.</p>}
+      <div className="mt-3 grid gap-4 text-sm md:grid-cols-2"><div><h3 className="font-medium">Your cited pages</h3>{sourceSummary?.citedPages.length ? <ul className="mt-2 space-y-1">{sourceSummary.citedPages.slice(0, 5).map((page) => <li key={page.url}>{page.answers} answer(s) · <a href={page.url} target="_blank" rel="noopener noreferrer" className="break-all text-signal hover:underline">{page.url}</a></li>)}</ul> : <p className="mt-2 text-muted-foreground">None observed in this sample.</p>}</div>
+        <div><h3 className="font-medium">Other cited domains</h3>{sourceSummary?.externalDomains.length ? <ul className="mt-2 space-y-1">{sourceSummary.externalDomains.slice(0, 5).map((source) => <li key={source.domain}>{source.domain} · {source.answers} answer(s)</li>)}</ul> : <p className="mt-2 text-muted-foreground">None observed in this sample.</p>}</div></div>
+    </section>
     <section className="panel mt-5 p-5"><div className="flex flex-wrap justify-between gap-2"><h2 className="font-heading text-lg font-semibold">Fixed-panel history</h2><Link href={`/sites/${siteId}/ai-citations`} className="text-sm text-signal hover:underline">Manage questions and one-off samples</Link></div>
       {runs.length ? <div className="mt-3 space-y-2">{runs.map((run) => { const summary = summarizeCitationPanel({ mode: run.mode, promptCount: run.promptCount,
         results: run.results.map((result) => ({ status: result.status, siteCited: result.siteCited, sources: [] })) });

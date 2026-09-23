@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { summarizeCitationPanel, parseGscAiCsv, recentAiWindow, summarizeAiWindow, ga4WindowCovered } from "../lib/operator/ai-visibility";
+import { summarizeCitationPanel, compareCitationPanels, summarizeCitationSources, parseGscAiCsv, recentAiWindow, summarizeAiWindow, ga4WindowCovered } from "../lib/operator/ai-visibility";
 import { classifyAiReferrer, parseGa4TrafficRows, ga4ReportRowCount } from "../lib/google/ga4-client";
 import { nextPendingPanelPrompt } from "../lib/operator/ai-panel-run";
 
@@ -16,6 +16,27 @@ test("panel rate uses successful live observations and exposes coverage", () => 
   assert.equal(summary.citationRate, 0.5);
   assert.equal(summary.coverage, "PARTIAL");
   assert.equal(summarizeCitationPanel({ mode: "SANDBOX", promptCount: 1, results: [{ status: "OBSERVED", siteCited: true, sources: [] }] }).citationRate, null);
+});
+
+test("citation trends require the same fully observed live panel and market", () => {
+  const oldRun = { mode: "LIVE", status: "COMPLETE", locationCode: 2804, languageCode: "uk", promptCount: 2,
+    results: [{ promptFingerprint: "a", status: "OBSERVED", siteCited: false },
+      { promptFingerprint: "b", status: "OBSERVED", siteCited: true }] };
+  const newRun = { ...oldRun, results: [{ promptFingerprint: "a", status: "OBSERVED", siteCited: true },
+    { promptFingerprint: "b", status: "OBSERVED", siteCited: false }] };
+  assert.deepEqual(compareCitationPanels(newRun, oldRun), { newlyCited: ["a"], lostCitations: ["b"] });
+  assert.equal(compareCitationPanels({ ...newRun, languageCode: "en" }, oldRun), null);
+  assert.equal(compareCitationPanels({ ...newRun, status: "PARTIAL" }, oldRun), null);
+  assert.equal(compareCitationPanels({ ...newRun, results: newRun.results.slice(0, 1) }, oldRun), null);
+});
+
+test("citation sources identify observed cited pages and external domains without calling them share of voice", () => {
+  assert.deepEqual(summarizeCitationSources("strum.capital", [{ status: "OBSERVED", sources: [
+    { url: "https://www.strum.capital/features/ovdp-tracker/", domain: "www.strum.capital" },
+    { url: "https://competitor.ua/guide", domain: "competitor.ua" },
+    { url: "https://competitor.ua/other", domain: "competitor.ua" },
+  ] }]), { citedPages: [{ url: "https://www.strum.capital/features/ovdp-tracker/", answers: 1 }],
+    externalDomains: [{ domain: "competitor.ua", answers: 1 }] });
 });
 
 test("Google AI CSV import requires actual impression values and unique dates", () => {

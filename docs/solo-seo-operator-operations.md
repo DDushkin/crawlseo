@@ -11,7 +11,7 @@ This release preserves the `Site` tenancy boundary. Every page, prompt, action, 
 | Measured outcome | The 28 days before and after the recorded change, excluding two days on either side, with finalized GSC coverage | Observed difference is not proof the change caused it. Missing coverage is unavailable, not zero. |
 | Google AI impressions | User-confirmed chart CSV export from GSC's Generative AI (Search) report | Included in normal Web impressions; never add them to GSC totals. CSV does not cryptographically identify its property. Google export may render unavailable values as zero. |
 | GA4 AI referrals | Sessions and key events from identifiable ChatGPT, Perplexity, Claude, Gemini, and Copilot referrers | Direct/stripped referrers are missed. GA4 property-timezone sessions are not GSC Pacific-time clicks. |
-| ChatGPT citations | DataForSEO final-answer `sources` for a fixed panel of site-owned questions | A sample, not actual user prompts, AI search traffic, or population visibility. Sandbox observations are synthetic and excluded from the live rate. |
+| ChatGPT citations | DataForSEO final-answer `sources` for a fixed panel of site-owned questions; answer-level cited-page and external-domain counts | A sample, not actual user prompts, AI search traffic, or population visibility. New/lost citations require two complete live runs with the same question set and market. Sandbox observations are synthetic and excluded from the live rate. |
 | Paid placements | Recorded publisher article URL, target URL, cost and fee in UAH; independent live HTML checks | Publication date is not payment date; an absent provider-indexed backlink is not proof a link is absent. No link value or traffic attribution is inferred. |
 
 ## Deploy safely in Coolify
