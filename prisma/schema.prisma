@@ -121,6 +121,7 @@ model Site {
   crawlFindings      CrawlFinding[]
   placements         Placement[]
   placementChecks    PlacementCheck[]
+  aiPrompts          AiPrompt[]
 
   @@unique([userId, domain])
 }
@@ -672,6 +673,24 @@ model PlacementCheck {
   placement    Placement @relation(fields: [placementId], references: [id], onDelete: Cascade)
 
   @@index([siteId, placementId, checkedAt])
+}
+
+model AiPrompt {
+  id          String   @id @default(cuid())
+  siteId      String
+  fingerprint String
+  question    String
+  country     String
+  language    String
+  platform    String   @default("CHATGPT_WEB")
+  intent      String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, fingerprint])
+  @@index([siteId, active])
 }
 
 enum CrawlStatus {

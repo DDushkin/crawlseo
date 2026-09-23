@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Loader2, ExternalLink, Bookmark } from "lucide-react";
 import { confirmDataForSeoRequest } from "./dataforseo-confirm";
 
-type Kind = "competitor_gap" | "placement" | "ai_citation";
+export type Kind = "competitor_gap" | "placement" | "ai_citation";
 type Gap = { keyword: string; volume: number | null; difficulty: number | null; intent: string | null; competitorRank: number | null; competitorUrl: string | null };
 type Placement = { observed: boolean; links: Array<{ sourceUrl: string; targetUrl: string; anchorText: string; dofollow: boolean | null }> };
 type Citation = { model: string | null; observedAt: string | null; siteCited: boolean; sources: Array<{ domain: string; url: string; title: string }> };
@@ -20,8 +20,8 @@ const workflows: Array<{ kind: Kind; title: string; label: string; placeholder: 
     help: "Sample one ChatGPT web-search answer. Only sources used in the final answer count as citations; one sample is not a visibility rate." },
 ];
 
-export function OperatorResearchClient({ siteId, domain, hasDataForSEO, initialHistory }: {
-  siteId: string; domain: string; hasDataForSEO: boolean; initialHistory: Item[];
+export function OperatorResearchClient({ siteId, domain, hasDataForSEO, initialHistory, kind }: {
+  siteId: string; domain: string; hasDataForSEO: boolean; initialHistory: Item[]; kind: Kind;
 }) {
   const [targets, setTargets] = useState<Record<Kind, string>>({
     competitor_gap: "", placement: "", ai_citation: domain === "strum.capital" ? "Який сервіс допомагає відстежувати інвестиційний портфель в Україні?" : "",
@@ -33,11 +33,11 @@ export function OperatorResearchClient({ siteId, domain, hasDataForSEO, initialH
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/sites/${siteId}/operator-research`).then((res) => res.json()).then((data) => {
+    fetch(`/api/sites/${siteId}/operator-research?kind=${kind}`).then((res) => res.json()).then((data) => {
       if (active && Array.isArray(data.history)) setHistory(data.history);
     }).catch(() => {});
     return () => { active = false; };
-  }, [siteId]);
+  }, [siteId, kind]);
 
   async function run(kind: Kind) {
     const target = targets[kind].trim();
@@ -53,7 +53,7 @@ export function OperatorResearchClient({ siteId, domain, hasDataForSEO, initialH
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Research request failed");
       setLatest(data);
-      const historyRes = await fetch(`/api/sites/${siteId}/operator-research`);
+      const historyRes = await fetch(`/api/sites/${siteId}/operator-research?kind=${kind}`);
       if (historyRes.ok) setHistory((await historyRes.json()).history ?? []);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Research request failed");
@@ -75,8 +75,8 @@ export function OperatorResearchClient({ siteId, domain, hasDataForSEO, initialH
         Each run is manual and shows a cost preview. DataForSEO Sandbox is free but synthetic; switch to Live in <Link href={`/sites/${siteId}/settings`} className="text-primary underline">Settings</Link> only when ready. GSC remains the source for actual clicks and impressions.
       </div>
       {!hasDataForSEO && <p className="rounded-lg border border-warning/30 bg-warning/5 p-4 text-sm text-warning">Connect your DataForSEO key in site Settings to use these workflows.</p>}
-      <div className="grid gap-4 lg:grid-cols-3">
-        {workflows.map((workflow) => (
+      <div className="max-w-3xl">
+        {workflows.filter((workflow) => workflow.kind === kind).map((workflow) => (
           <section key={workflow.kind} className="panel p-5">
             <h2 className="font-heading text-lg font-semibold">{workflow.title}</h2>
             <p className="mt-2 min-h-20 text-sm text-muted-foreground">{workflow.help}</p>
@@ -95,7 +95,7 @@ export function OperatorResearchClient({ siteId, domain, hasDataForSEO, initialH
       {latest && <section className="panel p-5"><h2 className="font-heading text-lg font-semibold">Latest result</h2><Evidence item={latest} onSave={saveKeyword} /></section>}
       <section className="panel p-5">
         <h2 className="font-heading text-lg font-semibold">Previous runs</h2>
-        {history.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No research runs yet. Start with a direct competitor, a published article, or one customer question.</p> :
+        {history.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No {labelFor(kind).toLowerCase()} runs yet.</p> :
           <ul className="mt-3 space-y-3">{history.map((item, index) => <li key={`${item.kind}-${item.target}-${index}`} className="border-t border-border pt-3">
             <details><summary className="cursor-pointer text-sm font-medium">{labelFor(item.kind)} · {item.target} · {new Date(item.createdAt ?? "").toLocaleDateString()}</summary>
               <Evidence item={item} onSave={saveKeyword} />

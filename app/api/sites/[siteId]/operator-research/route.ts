@@ -9,15 +9,18 @@ async function ownedSite(siteId: string, userId: string) {
   return db.site.findFirst({ where: { id: siteId, userId }, select: { domain: true } });
 }
 
-export async function GET(_req: Request, { params }: { params: Promise<{ siteId: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ siteId: string }> }) {
   const session = await auth();
   if (!session?.user?.id) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { siteId } = await params;
   const site = await ownedSite(siteId, session.user.id);
   if (!site) return Response.json({ error: "Not found" }, { status: 404 });
 
+  const kind = new URL(req.url).searchParams.get("kind");
+  if (kind && !kinds.includes(kind as OperatorKind)) return Response.json({ error: "Invalid workflow" }, { status: 400 });
+  const operation = kind === "placement" ? "placement_check" : kind;
   const runs = await db.dataForSeoRun.findMany({
-    where: { siteId, operation: { in: ["competitor_gap", "placement_check", "ai_citation"] }, status: "SUCCEEDED" },
+    where: { siteId, operation: operation || { in: ["competitor_gap", "placement_check", "ai_citation"] }, status: "SUCCEEDED" },
     orderBy: { createdAt: "desc" }, take: 20,
     select: { operation: true, target: true, mode: true, chargedUsd: true, createdAt: true, response: true },
   });
