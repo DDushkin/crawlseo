@@ -15,7 +15,7 @@ model User {
   emailVerified DateTime?
   name          String?
   image         String?
-  googleTokens  Json?     // Encrypted GSC OAuth tokens
+  googleTokens  Json?     // OAuth token cache; protect database access and backups
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -89,6 +89,8 @@ model Site {
   gscSearchType  String    @default("web")
   gscDataVersion Int       @default(1)
   lastGscSyncAt  DateTime?
+  ga4PropertyId  String?
+  lastGa4SyncAt  DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -122,6 +124,12 @@ model Site {
   placements         Placement[]
   placementChecks    PlacementCheck[]
   aiPrompts          AiPrompt[]
+  aiVisibilityRuns   AiVisibilityRun[]
+  aiVisibilityResults AiVisibilityResult[]
+  gscAiImports       GscAiImport[]
+  gscAiDaily         GscAiDaily[]
+  aiReferralDaily    AiReferralDaily[]
+  ga4OrganicDaily    Ga4OrganicDaily[]
 
   @@unique([userId, domain])
 }
@@ -688,9 +696,111 @@ model AiPrompt {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  results     AiVisibilityResult[]
 
   @@unique([siteId, fingerprint])
   @@index([siteId, active])
+}
+
+model AiVisibilityRun {
+  id           String   @id @default(cuid())
+  siteId       String
+  activeKey    String?  @unique
+  status       String   @default("QUEUED")
+  mode         String
+  platform     String   @default("CHATGPT_WEB")
+  locationCode Int
+  languageCode String
+  promptCount  Int
+  promptSnapshots Json
+  chargedUsd   Float    @default(0)
+  startedAt    DateTime @default(now())
+  finishedAt   DateTime?
+  leaseUntil   DateTime?
+  error        String?
+  site         Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  results      AiVisibilityResult[]
+
+  @@index([siteId, startedAt])
+  @@index([status, leaseUntil])
+}
+
+model AiVisibilityResult {
+  id               String   @id @default(cuid())
+  siteId           String
+  runId            String
+  promptId         String?
+  promptFingerprint String
+  questionSnapshot String
+  status           String
+  siteCited        Boolean
+  sources          Json
+  model            String?
+  observedAt       DateTime?
+  cached           Boolean  @default(false)
+  error            String?
+  site             Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  run              AiVisibilityRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  prompt           AiPrompt? @relation(fields: [promptId], references: [id], onDelete: SetNull)
+
+  @@unique([runId, promptFingerprint])
+  @@index([siteId, promptId])
+}
+
+model GscAiImport {
+  id          String   @id @default(cuid())
+  siteId      String
+  property    String
+  fileName    String
+  fileHash    String
+  rowCount    Int
+  firstDate   DateTime @db.Date
+  lastDate    DateTime @db.Date
+  importedAt  DateTime @default(now())
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, fileHash])
+  @@index([siteId, importedAt])
+}
+
+model GscAiDaily {
+  id          String   @id @default(cuid())
+  siteId      String
+  property    String
+  date        DateTime @db.Date
+  impressions Int
+  importedAt  DateTime @default(now())
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, property, date])
+  @@index([siteId, date])
+}
+
+model AiReferralDaily {
+  id          String   @id @default(cuid())
+  siteId      String
+  date        DateTime @db.Date
+  source      String
+  sessions    Int
+  keyEvents   Float
+  syncedAt    DateTime @default(now())
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, date, source])
+  @@index([siteId, date])
+}
+
+model Ga4OrganicDaily {
+  id          String   @id @default(cuid())
+  siteId      String
+  date        DateTime @db.Date
+  sessions    Int
+  keyEvents   Float
+  syncedAt    DateTime @default(now())
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, date])
+  @@index([siteId, date])
 }
 
 enum CrawlStatus {

@@ -160,11 +160,15 @@ export function parseAiCitationSample(data: DataForSeoResponse, siteDomain: stri
     model?: string; datetime?: string;
     sources?: Array<{ domain?: string; url?: string; title?: string }>;
   } | undefined;
-  const sources = (result?.sources ?? []).filter((source) => source.url && source.domain).map((source) => ({
-    domain: source.domain!.toLowerCase().replace(/^www\./, ""),
-    url: source.url!,
-    title: source.title ?? source.domain!,
-  }));
+  const sources = (result?.sources ?? []).flatMap((source) => {
+    if (!source.url) return [];
+    try {
+      const url = new URL(source.url);
+      if (!/^(https?:)$/.test(url.protocol)) return [];
+      const domain = url.hostname.toLowerCase().replace(/^www\./, "");
+      return [{ domain, url: url.toString(), title: source.title ?? domain }];
+    } catch { return []; }
+  });
   const domain = siteDomain.toLowerCase().replace(/^www\./, "");
   return {
     model: result?.model ?? null,

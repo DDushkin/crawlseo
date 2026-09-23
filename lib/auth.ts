@@ -35,12 +35,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (account?.access_token && user?.email) {
         // Save Google OAuth tokens after user is created by adapter
         try {
+          const previous = await db.user.findUnique({ where: { email: user.email }, select: { googleTokens: true } });
+          const previousTokens = previous?.googleTokens as { refreshToken?: string } | null;
           await db.user.update({
             where: { email: user.email },
             data: {
               googleTokens: {
                 accessToken: account.access_token,
-                refreshToken: account.refresh_token,
+                refreshToken: account.refresh_token || previousTokens?.refreshToken,
                 // account.expires_at is Unix seconds; store ms to match
                 // refreshAccessToken() and getAccessToken()'s Date.now() checks.
                 expiresAt: account.expires_at
