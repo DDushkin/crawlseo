@@ -1,0 +1,1 @@
+ALTER TABLE "SeoAction" ADD COLUMN "signalActive" BOOLEAN NOT NULL DEFAULT true;

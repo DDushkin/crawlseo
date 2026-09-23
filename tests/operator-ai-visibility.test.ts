@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { summarizeCitationPanel, parseGscAiCsv, recentAiWindow } from "../lib/operator/ai-visibility";
-import { classifyAiReferrer, parseGa4TrafficRows } from "../lib/google/ga4-client";
+import { classifyAiReferrer, parseGa4TrafficRows, ga4ReportRowCount } from "../lib/google/ga4-client";
 import { nextPendingPanelPrompt } from "../lib/operator/ai-panel-run";
 
 test("panel rate uses successful live observations and exposes coverage", () => {
@@ -53,4 +53,9 @@ test("GA4 referrals count identifiable AI sources, not all Bing or Google sessio
   assert.throws(() => parseGa4TrafficRows({ rows: [
     { dimensionValues: [{ value: "20260230" }, { value: "chatgpt.com" }, { value: "referral" }, { value: "Referral" }], metricValues: [{ value: "1" }, { value: "0" }] },
   ] }), /invalid date/i);
+});
+
+test("GA4 accepts an empty property report but rejects missing counts when rows exist", () => {
+  assert.equal(ga4ReportRowCount({}), 0);
+  assert.throws(() => ga4ReportRowCount({ rows: [{ dimensionValues: [], metricValues: [] }] }), /row count/i);
 });

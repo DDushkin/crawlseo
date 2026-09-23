@@ -18,10 +18,14 @@ export function compareCrawlIssues(previous: ComparableIssue[], current: Compara
   return findings.sort((a, b) => a.status.localeCompare(b.status) || a.url.localeCompare(b.url));
 }
 
+export function crawlActionShouldDeactivate(issue: { status: string; severity: string }, urlWasCrawled: boolean) {
+  return urlWasCrawled && (issue.status === "RESOLVED" || issue.severity !== "CRITICAL");
+}
+
 import { db } from "@/lib/db";
 import { filterIssuesForSearchCandidates } from "@/lib/crawler/analysis";
 import { REMEDIATION } from "@/lib/crawler/remediation";
-import { upsertDetectedAction } from "./actions";
+import { actionFingerprint, upsertDetectedAction } from "./actions";
 import { Prisma } from "@prisma/client";
 
 /** Only a finalized successful crawl can replace the comparison baseline. */
@@ -62,6 +66,10 @@ export async function compareAndStoreCompletedCrawl(siteId: string, crawlId: str
   }
   const actionable = baseline ? findings : currentIssues.map((item) => ({ ...item, status: "BASELINE" as const }));
   for (const item of actionable) {
+    if (baseline && crawlActionShouldDeactivate(item, seenUrls.has(item.url))) {
+      await db.seoAction.updateMany({ where: { siteId, fingerprint: actionFingerprint({ type: `CRAWL_${item.type}`, pageUrl: item.url }),
+        signalActive: true }, data: { signalActive: false } });
+    }
     if (item.status === "RESOLVED" || item.severity !== "CRITICAL") continue;
     const remediation = REMEDIATION[item.type];
     await upsertDetectedAction(siteId, { type: `CRAWL_${item.type}`, pageUrl: item.url,

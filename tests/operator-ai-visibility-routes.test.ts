@@ -28,6 +28,19 @@ test("GSC AI import refuses property mismatch before writing", async (t) => {
   assert.equal(response.status, 400);
 });
 
+test("GSC AI import deduplicates within the selected property, not across property reconnects", async (t) => {
+  intercept(t, db.site, "findFirst", async () => ({ gscProperty: "sc-domain:strum.capital" }));
+  let key: Record<string, unknown> | null = null;
+  intercept(t, db.gscAiImport, "findUnique", async (args: { where: Record<string, unknown> }) => { key = args.where; return { id: "existing" }; });
+  const form = new FormData();
+  form.set("file", new File(["Date,Impressions\n2026-09-01,3"], "Chart.csv"));
+  form.set("property", "sc-domain:strum.capital"); form.set("confirmedProperty", "true");
+  const response = await aiImport.POST(new Request("https://seo.example/api/sites/site-1/gsc-ai-import", { method: "POST", body: form }),
+    { params: Promise.resolve({ siteId: "site-1" }) });
+  assert.equal(response.status, 200);
+  assert.equal((key as { siteId_property_fileHash?: { property?: string } } | null)?.siteId_property_fileHash?.property, "sc-domain:strum.capital");
+});
+
 test("AI visibility GET is site-scoped and does not contact paid provider", async (t) => {
   intercept(t, db.site, "findFirst", async () => null);
   intercept(t, globalThis, "fetch", async () => { throw new Error("GET contacted provider"); });
@@ -37,12 +50,13 @@ test("AI visibility GET is site-scoped and does not contact paid provider", asyn
 
 test("confirmed AI panel persists a resumable queue without charging on the browser request", async (t) => {
   intercept(t, db.site, "findFirst", async () => ({ domain: "strum.capital" }));
+  intercept(t, db.apiKey, "findUnique", async () => ({ id: "connected-key" }));
   intercept(t, db.aiPrompt, "findMany", async () => [{ id: "p1", fingerprint: "fingerprint", question: "Який трекер інвестицій обрати?",
     country: "UA", language: "uk", platform: "CHATGPT_WEB" }]);
   intercept(t, db.dataForSeoSettings, "upsert", async () => ({ mode: "SANDBOX", locationCode: 2804, languageCode: "uk", spentUsd: 0, reservedUsd: 0 }));
   intercept(t, db.dataForSeoRun, "findMany", async () => []);
-  let saved: Record<string, unknown> | null = null;
-  intercept(t, db.aiVisibilityRun, "create", async (args: { data: Record<string, unknown> }) => { saved = args.data; return { id: "run-1" }; });
+  const saved: Record<string, unknown> = {};
+  intercept(t, db.aiVisibilityRun, "create", async (args: { data: Record<string, unknown> }) => { Object.assign(saved, args.data); return { id: "run-1" }; });
   intercept(t, globalThis, "fetch", async () => { throw new Error("confirmation unexpectedly contacted DataForSEO"); });
   const response = await aiPanel.POST(new Request("https://seo.example/api/sites/site-1/ai-visibility", { method: "POST",
     body: JSON.stringify({ confirm: true, promptIds: ["p1"], maxUsd: 0 }) }), { params: Promise.resolve({ siteId: "site-1" }) });

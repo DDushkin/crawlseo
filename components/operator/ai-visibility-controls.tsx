@@ -77,7 +77,8 @@ export function Ga4Controls({ siteId, propertyId, lastSync }: { siteId: string; 
   </section>;
 }
 
-export function AiPanelRunControl({ siteId, activeRun }: { siteId: string; activeRun: { id: string; status: string; promptCount: number; completedCount: number } | null }) {
+export function AiPanelRunControl({ siteId, activeRun, providerConnected }: { siteId: string; providerConnected: boolean;
+  activeRun: { id: string; status: string; promptCount: number; completedCount: number } | null }) {
   const router = useRouter();
   const [preview, setPreview] = useState<PanelPreview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -121,11 +122,12 @@ export function AiPanelRunControl({ siteId, activeRun }: { siteId: string; activ
   }
   return <section className="panel p-5"><h2 className="font-heading text-lg font-semibold">Sample the fixed prompt panel</h2>
     <p className="mt-2 text-sm text-muted-foreground">DataForSEO samples ChatGPT web-search answers for the active questions. This is a controlled test, not what real users typed. No provider call occurs until you confirm the preview.</p>
+    {!providerConnected && <p className="mt-2 text-sm text-warning">Connect your DataForSEO key in site Settings before running a panel.</p>}
     {activeRun && <div className="mt-3 rounded-lg border border-border p-3 text-sm"><p>{activeRun.status} · {activeRun.completedCount}/{activeRun.promptCount} questions processed</p>
       <p className="mt-1 text-xs text-muted-foreground">Each request processes one question. The authenticated scheduler can continue this run if the browser closes; you can also advance it manually.</p>
       <div className="mt-2 flex flex-wrap gap-2"><button disabled={busy || !["QUEUED", "INTERRUPTED"].includes(activeRun.status)} onClick={() => void advance()} className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50">{activeRun.status === "INTERRUPTED" ? "Resume run" : "Process next question"}</button>
         <button disabled={busy || activeRun.status !== "QUEUED"} onClick={() => void cancel()} className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50">Cancel remaining</button></div></div>}
-    <button disabled={busy || !!activeRun} onClick={() => void getPreview()} className="mt-3 rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50">Preview panel and cost</button>
+    <button disabled={busy || !!activeRun || !providerConnected} onClick={() => void getPreview()} className="mt-3 rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50">Preview panel and cost</button>
     {preview && <div className="mt-3 rounded-lg border border-border p-4 text-sm"><p>{preview.prompts.length} questions · {preview.languageCode}/{preview.locationCode} · {preview.mode}</p>
       <p className="mt-1">Estimate: ${preview.estimatedUsd.toFixed(4)} · {preview.cachedRequests} cached · {preview.uncachedRequests} uncached · remaining site budget ${Math.max(0, preview.budgetUsd - preview.spentUsd - preview.reservedUsd).toFixed(3)}</p>
       {preview.mode === "SANDBOX" && <p className="mt-1 text-warning">Sandbox results are synthetic and excluded from visibility statistics.</p>}

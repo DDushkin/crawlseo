@@ -8,16 +8,18 @@ import { recentAiWindow, summarizeCitationPanel } from "@/lib/operator/ai-visibi
 
 export default async function AiVisibilityPage({ params }: { params: Promise<{ siteId: string }> }) {
   const session = await auth(); const { siteId } = await params;
-  const site = await db.site.findFirst({ where: { id: siteId, userId: session?.user?.id ?? "" },
+  const userId = session?.user?.id ?? "";
+  const site = await db.site.findFirst({ where: { id: siteId, userId },
     select: { domain: true, gscProperty: true, ga4PropertyId: true, lastGa4SyncAt: true } });
   if (!site) redirect("/sites");
   const window = recentAiWindow();
-  const [googleDays, referralDays, organicDays, imports, runs] = await Promise.all([
+  const [googleDays, referralDays, organicDays, imports, runs, credentials] = await Promise.all([
     db.gscAiDaily.findMany({ where: { siteId, property: site.gscProperty || "", date: window.db }, orderBy: { date: "asc" } }),
     db.aiReferralDaily.findMany({ where: { siteId, date: window.db }, orderBy: { date: "asc" } }),
     db.ga4OrganicDaily.findMany({ where: { siteId, date: window.db }, orderBy: { date: "asc" } }),
     db.gscAiImport.findMany({ where: { siteId }, orderBy: { importedAt: "desc" }, take: 5 }),
     db.aiVisibilityRun.findMany({ where: { siteId }, orderBy: { startedAt: "desc" }, take: 20, include: { results: true } }),
+    db.apiKey.findUnique({ where: { userId_provider: { userId, provider: "dataforseo" } }, select: { id: true } }),
   ]);
   const latestLive = runs.find((run) => run.mode === "LIVE" && ["COMPLETE", "PARTIAL"].includes(run.status));
   const latestSummary = latestLive ? summarizeCitationPanel({ mode: latestLive.mode, promptCount: latestLive.promptCount,
@@ -31,7 +33,7 @@ export default async function AiVisibilityPage({ params }: { params: Promise<{ s
     </div>
     <p className="mb-5 text-xs text-muted-foreground">Google AI impressions are included in Web search totals; do not add them to GSC clicks. AI referral sessions can miss stripped or direct referrers. ChatGPT samples are not actual user-query volume.</p>
     <div className="grid gap-4 xl:grid-cols-2"><GscAiImportControl siteId={siteId} property={site.gscProperty} /><Ga4Controls siteId={siteId} propertyId={site.ga4PropertyId} lastSync={site.lastGa4SyncAt?.toISOString() ?? null} /></div>
-    <div className="mt-4"><AiPanelRunControl siteId={siteId} activeRun={activeRun ? { id: activeRun.id,
+    <div className="mt-4"><AiPanelRunControl siteId={siteId} providerConnected={!!credentials} activeRun={activeRun ? { id: activeRun.id,
       status: activeRun.status === "RUNNING" && activeRun.leaseUntil && activeRun.leaseUntil < new Date() ? "INTERRUPTED" : activeRun.status,
       promptCount: activeRun.promptCount, completedCount: activeRun.results.length } : null} /></div>
     <div className="mt-5 grid gap-4 lg:grid-cols-2"><section className="panel p-5"><h2 className="font-heading text-lg font-semibold">Recent Google AI imports</h2>{imports.length ? <ul className="mt-3 space-y-2 text-sm">{imports.map((item) => <li key={item.id}>{item.importedAt.toISOString().slice(0, 10)} · {item.firstDate.toISOString().slice(0, 10)} to {item.lastDate.toISOString().slice(0, 10)} · {item.rowCount} days · {item.fileName}</li>)}</ul> : <p className="mt-2 text-sm text-muted-foreground">No export imported. The report may be unavailable if Google has insufficient impressions for this property.</p>}<a className="mt-3 inline-block text-xs text-signal hover:underline" href="https://support.google.com/webmasters/answer/16984139?hl=en" target="_blank" rel="noopener noreferrer">Google report documentation</a></section>

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { toDbDate, pacificDateLabel } from "@/lib/gsc/date-range";
@@ -22,9 +23,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteId:
   catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Invalid CSV" }, { status: 400 }); }
   if (rows.some((row) => row.date > pacificDateLabel(new Date()))) return Response.json({ error: "Export contains a future date" }, { status: 400 });
   const fileHash = createHash("sha256").update(csv).digest("hex");
-  const existing = await db.gscAiImport.findUnique({ where: { siteId_fileHash: { siteId, fileHash } }, select: { id: true } });
+  const existing = await db.gscAiImport.findUnique({ where: { siteId_property_fileHash: { siteId, property: site.gscProperty, fileHash } }, select: { id: true } });
   if (existing) return Response.json({ imported: false, rows: rows.length, reason: "This exact file was already imported" });
-  const imported = await db.$transaction(async (tx) => {
+  let imported: { id: string };
+  try { imported = await db.$transaction(async (tx) => {
+    const stillSelected = await tx.site.findFirst({ where: { id: siteId, userId: session.user.id, gscProperty: site.gscProperty }, select: { id: true } });
+    if (!stillSelected) throw new Error("Selected GSC property changed during import");
     const batch = await tx.gscAiImport.create({ data: { siteId, property: site.gscProperty!, fileName: file.name.slice(0, 200), fileHash,
       rowCount: rows.length, firstDate: toDbDate(rows[0].date), lastDate: toDbDate(rows.at(-1)!.date) } });
     for (const row of rows) {
@@ -33,7 +37,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteId:
         update: { impressions: row.impressions, importedAt: new Date() } });
     }
     return batch;
-  });
+  }); }
+  catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return Response.json({ imported: false, rows: rows.length, reason: "This exact file was already imported" });
+    }
+    if (error instanceof Error && error.message === "Selected GSC property changed during import") {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
+    throw error;
+  }
   return Response.json({ imported: true, rows: rows.length, importId: imported.id,
     qualification: "User-attested GSC chart export. CSV does not embed a verifiable property identifier; export zeros can include unavailable values." });
 }

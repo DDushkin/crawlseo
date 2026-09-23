@@ -8,6 +8,7 @@ const authPath = require.resolve("../lib/auth");
 require.cache[authPath] = { exports: { auth: async () => ({ user: { id: "owner" } }) } } as NodeModule;
 const connect = require("../app/api/sites/[siteId]/ga4/connect/route") as typeof import("../app/api/sites/[siteId]/ga4/connect/route");
 const sync = require("../app/api/sites/[siteId]/ga4/sync/route") as typeof import("../app/api/sites/[siteId]/ga4/sync/route");
+const cron = require("../app/api/cron/ga4-sync/route") as typeof import("../app/api/cron/ga4-sync/route");
 
 function intercept(t: TestContext, target: object, method: string, fn: (...args: never[]) => unknown) {
   const original = Object.getOwnPropertyDescriptor(target, method);
@@ -30,4 +31,25 @@ test("GA4 sync requires a connected property and does not replace data otherwise
   const response = await sync.POST(new Request("https://seo.example/api/sites/site-1/ga4/sync", { method: "POST" }),
     { params: Promise.resolve({ siteId: "site-1" }) });
   assert.equal(response.status, 409);
+});
+
+test("GA4 scheduler requires its secret before listing sites", async (t) => {
+  intercept(t, db.site, "findMany", async () => { throw new Error("unauthorized site list"); });
+  const response = await cron.POST(new Request("https://seo.example/api/cron/ga4-sync", { method: "POST" }));
+  assert.equal(response.status, 401);
+});
+
+test("GA4 scheduler isolates a failing property from the next site", async (t) => {
+  const prior = process.env.CRON_SECRET;
+  process.env.CRON_SECRET = "local-secret";
+  t.after(() => { if (prior === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = prior; });
+  intercept(t, db.site, "findMany", async () => [
+    { id: "first", userId: "owner", ga4PropertyId: "not-numeric" },
+    { id: "second", userId: "owner", ga4PropertyId: "also-invalid" },
+  ]);
+  intercept(t, globalThis, "fetch", async () => { throw new Error("invalid properties should fail before Google calls"); });
+  const response = await cron.POST(new Request("https://seo.example/api/cron/ga4-sync", { method: "POST",
+    headers: { authorization: "Bearer local-secret" } }));
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).results.map((item: { state: string }) => item.state), ["FAILED", "FAILED"]);
 });

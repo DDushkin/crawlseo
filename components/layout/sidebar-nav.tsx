@@ -57,6 +57,8 @@ export function SidebarNav({
         label: "Workspace",
         items: [
           { href: `/sites/${activeSiteId}`, label: "Overview", icon: LayoutDashboard, exact: true },
+          { href: `/sites/${activeSiteId}/actions`, label: "Action Backlog", icon: Lightbulb },
+          { href: `/sites/${activeSiteId}/weekly-report`, label: "Weekly Report", icon: FileText },
           { href: `/sites/${activeSiteId}/keywords`, label: "Keywords", icon: Search },
           { href: `/sites/${activeSiteId}/saved-keywords`, label: "Saved Keywords", icon: Bookmark },
           { href: `/sites/${activeSiteId}/pages`, label: "Pages", icon: FileText },

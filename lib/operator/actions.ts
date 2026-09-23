@@ -86,13 +86,13 @@ export async function upsertDetectedAction(
       pageUrl: finding.pageUrl ?? null, query: finding.query ?? null,
       evidence, expectedClicks: finding.expectedClicks,
       confidence: finding.confidence, effort: finding.effort,
-      severity: finding.severity, priority,
+      severity: finding.severity, priority, signalActive: true,
     },
     update: {
       title: finding.title, rationale: finding.rationale, recommendation: finding.recommendation,
       evidence, expectedClicks: finding.expectedClicks,
       confidence: finding.confidence, effort: finding.effort,
-      severity: finding.severity, priority, lastSeenAt: new Date(),
+      severity: finding.severity, priority, signalActive: true, lastSeenAt: new Date(),
     },
   });
 }

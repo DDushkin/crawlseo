@@ -37,6 +37,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteId:
   const { siteId } = await params;
   const site = await db.site.findFirst({ where: { id: siteId, userId: session.user.id }, select: { domain: true } });
   if (!site) return Response.json({ error: "Not found" }, { status: 404 });
+  const credentials = await db.apiKey.findUnique({ where: { userId_provider: { userId: session.user.id, provider: "dataforseo" } }, select: { id: true } });
+  if (!credentials) return Response.json({ error: "Connect a DataForSEO API key in Settings before queuing a panel" }, { status: 409 });
   const body = await req.json().catch(() => null);
   if (!body || body.confirm !== true || !Array.isArray(body.promptIds) || typeof body.maxUsd !== "number") {
     return Response.json({ error: "Preview and confirm the exact panel cost first" }, { status: 400 });

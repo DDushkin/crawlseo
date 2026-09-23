@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compareCrawlIssues } from "../lib/operator/crawl-diff";
+import { compareCrawlIssues, crawlActionShouldDeactivate } from "../lib/operator/crawl-diff";
 import { normalizePlacement, placementTotals, matchingArticleLinks, isPublicAddress, extractArticleLinks } from "../lib/operator/placements";
 
 test("crawl comparison classifies new, persistent, and resolved issues without treating a failed crawl as baseline", () => {
@@ -16,6 +16,9 @@ test("crawl comparison classifies new, persistent, and resolved issues without t
   assert.equal(diff.filter((item) => item.status === "NEW").length, 1);
   assert.equal(diff.filter((item) => item.status === "PERSISTENT").length, 1);
   assert.equal(diff.filter((item) => item.status === "RESOLVED").length, 1);
+  assert.equal(crawlActionShouldDeactivate({ status: "RESOLVED", severity: "CRITICAL" }, true), true);
+  assert.equal(crawlActionShouldDeactivate({ status: "PERSISTENT", severity: "WARNING" }, true), true);
+  assert.equal(crawlActionShouldDeactivate({ status: "RESOLVED", severity: "CRITICAL" }, false), false);
 });
 
 test("article verification blocks private addresses and recognizes exact HTML links", () => {

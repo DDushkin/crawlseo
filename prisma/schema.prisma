@@ -172,6 +172,7 @@ model SeoAction {
   severity        String
   priority        Int
   status          String    @default("NEW")
+  signalActive    Boolean   @default(true)
   owner           String?
   dueAt           DateTime?
   notes           String?
@@ -759,7 +760,7 @@ model GscAiImport {
   importedAt  DateTime @default(now())
   site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
-  @@unique([siteId, fileHash])
+  @@unique([siteId, property, fileHash])
   @@index([siteId, importedAt])
 }
 

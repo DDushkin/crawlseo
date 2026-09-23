@@ -17,6 +17,14 @@ export function classifyAiReferrer(source: string) {
 type Ga4Row = { dimensionValues?: { value?: string }[]; metricValues?: { value?: string }[] };
 type Ga4Report = { rows?: Ga4Row[]; rowCount?: number };
 
+export function ga4ReportRowCount(report: Ga4Report) {
+  if (report.rowCount === undefined && (!report.rows || report.rows.length === 0)) return 0;
+  if (!Number.isSafeInteger(report.rowCount) || report.rowCount! < 0 || report.rowCount! < (report.rows?.length ?? 0)) {
+    throw new Error("GA4 report is missing a valid row count");
+  }
+  return report.rowCount!;
+}
+
 export function parseGa4TrafficRows(report: Ga4Report) {
   const ai = new Map<string, { date: string; source: string; sessions: number; keyEvents: number }>();
   const organic = new Map<string, { date: string; sessions: number; keyEvents: number }>();
@@ -71,8 +79,7 @@ export async function fetchGa4Report(userId: string, propertyId: string, startDa
     if (!response.ok) throw new Error(`GA4 report unavailable (HTTP ${response.status}); check property access and Analytics Data API enablement`);
     const data = await response.json() as Ga4Report;
     if (!Array.isArray(data.rows) && data.rows !== undefined) throw new Error("Unexpected GA4 report shape");
-    if (!Number.isSafeInteger(data.rowCount) || data.rowCount! < 0) throw new Error("GA4 report is missing a valid row count");
-    rowCount = data.rowCount!;
+    rowCount = ga4ReportRowCount(data);
     if (rowCount > 50_000) throw new Error("GA4 report exceeds the 50,000-row safe import limit");
     rows.push(...(data.rows || []));
     if (rows.length >= rowCount) break;
