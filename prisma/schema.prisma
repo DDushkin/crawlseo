@@ -113,6 +113,8 @@ model Site {
   dataForSeoRuns     DataForSeoRun[]
   sitePages          SitePage[]
   seoActions         SeoAction[]
+  seoChanges         SeoChange[]
+  seoOutcomes        SeoOutcome[]
 
   @@unique([userId, domain])
 }
@@ -165,10 +167,55 @@ model SeoAction {
 
   site            Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
   page            SitePage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  changes         SeoChange[]
+  outcomes        SeoOutcome[]
 
   @@unique([siteId, fingerprint])
   @@index([siteId, status, priority])
   @@index([siteId, pageUrl])
+}
+
+model SeoChange {
+  id                  String      @id @default(cuid())
+  siteId              String
+  actionId            String
+  description         String
+  changedAt           DateTime    @db.Date
+  metricScope         String
+  metricKey           String?
+  baselineStart       DateTime    @db.Date
+  baselineEnd         DateTime    @db.Date
+  afterStart          DateTime    @db.Date
+  afterEnd            DateTime    @db.Date
+  baselineClicks      Int?
+  baselineImpressions Int?
+  createdAt           DateTime    @default(now())
+  site                Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  action              SeoAction   @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  outcome             SeoOutcome?
+
+  @@index([siteId, changedAt])
+  @@index([siteId, afterEnd])
+}
+
+model SeoOutcome {
+  id                String    @id @default(cuid())
+  siteId            String
+  actionId          String
+  changeId          String    @unique
+  status            String
+  afterClicks       Int?
+  afterImpressions  Int?
+  clickDelta        Int?
+  clickChangePct    Float?
+  impressionDelta   Int?
+  qualification     String
+  evaluatedAt       DateTime  @default(now())
+  site              Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  action            SeoAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  change            SeoChange @relation(fields: [changeId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, evaluatedAt])
 }
 
 // DataForSEO is opt-in per site. Existing sites remain in free sandbox mode.
