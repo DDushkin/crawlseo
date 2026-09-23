@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
+import Link from "next/link";
 
 type PanelPreview = { mode: string; promptIds: string[]; prompts: { question: string; country: string; language: string }[];
   estimatedUsd: number; cachedRequests: number; uncachedRequests: number; budgetUsd: number; spentUsd: number; reservedUsd: number; locationCode: number; languageCode: string };
@@ -43,7 +43,7 @@ export function GscAiImportControl({ siteId, property }: { siteId: string; prope
   </section>;
 }
 
-export function Ga4Controls({ siteId, propertyId, lastSync }: { siteId: string; propertyId: string | null; lastSync: string | null }) {
+export function Ga4Controls({ siteId, propertyId, lastSync, credentialConnected }: { siteId: string; propertyId: string | null; lastSync: string | null; credentialConnected: boolean }) {
   const router = useRouter();
   const [input, setInput] = useState(propertyId || "");
   const [busy, setBusy] = useState(false);
@@ -65,13 +65,12 @@ export function Ga4Controls({ siteId, propertyId, lastSync }: { siteId: string; 
     finally { setBusy(false); }
   }
   return <section className="panel p-5"><h2 className="font-heading text-lg font-semibold">GA4 referrals and conversions</h2>
-    <p className="mt-2 text-sm text-muted-foreground">Grant Analytics read-only access, then enter the GA4 property ID for this site. Only known AI referrers are classified; direct visits without referrer are not counted as AI.</p>
-    <div className="mt-3 flex flex-wrap gap-2"><button onClick={() => void signIn("google", { callbackUrl: `/sites/${siteId}/ai-visibility` }, {
-      scope: "openid email profile https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/analytics.readonly",
-      access_type: "offline", prompt: "consent" })} className="rounded-lg border border-border px-3 py-2 text-sm">Authorize GA4 read-only</button>
+    <p className="mt-2 text-sm text-muted-foreground">Connect a service account in <Link href={`/sites/${siteId}/settings`} className="text-signal hover:underline">Settings</Link>, grant it Viewer access to this GA4 property, then enter the numeric property ID. Only known AI referrers are classified; direct visits without referrer are not counted as AI.</p>
+    {!credentialConnected && <p className="mt-2 text-sm text-warning">No GA4 service account connected yet. Add one in Settings before connecting or syncing this property.</p>}
+    <div className="mt-3 flex flex-wrap gap-2">
       <input inputMode="numeric" value={input} onChange={(event) => setInput(event.target.value)} placeholder="GA4 property ID" aria-label="GA4 property ID" className="rounded-lg border border-border bg-card px-3 py-2 text-sm" />
-      <button disabled={busy || !input.trim()} onClick={() => void connect()} className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50">Connect property</button>
-      <button disabled={busy || !propertyId} onClick={() => void sync()} className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50">Sync 90 days</button></div>
+      <button disabled={busy || !credentialConnected || !input.trim()} onClick={() => void connect()} className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50">Connect property</button>
+      <button disabled={busy || !credentialConnected || !propertyId} onClick={() => void sync()} className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50">Sync 90 days</button></div>
     <p className="mt-2 text-xs text-muted-foreground">{propertyId ? `Connected property ${propertyId}` : "No GA4 property connected"} · {lastSync ? `Last sync ${new Date(lastSync).toLocaleString()}` : "No successful sync"}</p>
     {message && <p role="status" className="mt-2 text-sm text-muted-foreground">{message}</p>}
   </section>;

@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DeleteSiteButton } from "@/components/sites/delete-site-button";
 import { ApiKeysSection } from "@/components/settings/api-keys-section";
 import { DataForSeoSettingsSection } from "@/components/settings/dataforseo-settings-section";
+import { Ga4CredentialsSection } from "@/components/settings/ga4-credentials-section";
 
 interface Props {
   params: Promise<{ siteId: string }>;
@@ -34,6 +35,10 @@ export default async function SettingsPage({ params }: Props) {
   });
   if (!site || site.userId !== session?.user?.id) redirect("/sites");
   const counts = await getGscStoredCounts(siteId);
+  const ga4Credential = await db.ga4Credential.findUnique({
+    where: { userId: session.user.id },
+    select: { clientEmail: true, projectId: true },
+  });
 
   // Check API key status
   const apiKeys = await db.apiKey.findMany({
@@ -91,6 +96,9 @@ export default async function SettingsPage({ params }: Props) {
         {/* External API Keys */}
         <ApiKeysSection initialStatus={apiKeyStatus} />
         <DataForSeoSettingsSection siteId={siteId} hasKey={apiKeyStatus.dataforseo.connected} />
+        <Ga4CredentialsSection initialStatus={ga4Credential
+          ? { connected: true, clientEmail: ga4Credential.clientEmail, projectId: ga4Credential.projectId }
+          : { connected: false, clientEmail: null, projectId: null }} />
 
         {/* Data summary */}
         <div className="panel p-5">
