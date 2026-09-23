@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
-import { getAccessToken } from "./google-auth";
+import { decrypt } from "@/lib/encryption";
+import { getGa4ServiceAccountToken, parseGa4ServiceAccount } from "./ga4-service-account";
 
 const AI_SOURCES: Array<[RegExp, string]> = [
   [/^(?:www\.)?(?:chatgpt\.com|chat\.openai\.com)$/i, "ChatGPT"],
@@ -54,18 +55,11 @@ export function parseGa4TrafficRows(report: Ga4Report) {
     organic: [...organic.values()].sort((a, b) => a.date.localeCompare(b.date)) };
 }
 
-export async function requireGa4Scope(userId: string) {
-  const user = await db.user.findUnique({ where: { id: userId }, select: { googleTokens: true } });
-  const scope = (user?.googleTokens as { scope?: string } | null)?.scope || "";
-  if (!scope.split(/\s+/).includes("https://www.googleapis.com/auth/analytics.readonly")) {
-    throw new Error("Connect Google Analytics read-only access first");
-  }
-}
-
 export async function fetchGa4Report(userId: string, propertyId: string, startDate: string, endDate: string): Promise<Ga4Report> {
   if (!/^\d{1,20}$/.test(propertyId)) throw new Error("GA4 property ID must be numeric");
-  await requireGa4Scope(userId);
-  const token = await getAccessToken(userId);
+  const credential = await db.ga4Credential.findUnique({ where: { userId }, select: { encryptedJson: true } });
+  if (!credential) throw new Error("Connect a GA4 service account in Settings first");
+  const token = await getGa4ServiceAccountToken(parseGa4ServiceAccount(decrypt(credential.encryptedJson)));
   const rows: Ga4Row[] = [];
   let rowCount = 0;
   for (let offset = 0; offset <= 50_000; offset += 10_000) {
@@ -76,7 +70,11 @@ export async function fetchGa4Report(userId: string, propertyId: string, startDa
         metrics: [{ name: "sessions" }, { name: "keyEvents" }], limit: "10000", offset: String(offset) }),
       signal: AbortSignal.timeout(30_000),
     });
-    if (!response.ok) throw new Error(`GA4 report unavailable (HTTP ${response.status}); check property access and Analytics Data API enablement`);
+    if (!response.ok) {
+      if (response.status === 403) throw new Error("GA4 report unavailable (HTTP 403); check GA4 Viewer access and Analytics Data API enablement in the service-account project");
+      if (response.status === 404) throw new Error("GA4 report unavailable (HTTP 404); check GA4 property ID and access");
+      throw new Error(`GA4 report unavailable (HTTP ${response.status})`);
+    }
     const data = await response.json() as Ga4Report;
     if (!Array.isArray(data.rows) && data.rows !== undefined) throw new Error("Unexpected GA4 report shape");
     rowCount = ga4ReportRowCount(data);
