@@ -111,8 +111,64 @@ model Site {
   gscReportCoverage GscReportCoverage[]
   dataForSeoSettings DataForSeoSettings?
   dataForSeoRuns     DataForSeoRun[]
+  sitePages          SitePage[]
+  seoActions         SeoAction[]
 
   @@unique([userId, domain])
+}
+
+// Canonical, durable page identity; daily GSC Page rows remain unchanged.
+model SitePage {
+  id        String   @id @default(cuid())
+  siteId    String
+  url       String
+  pageType  String?
+  state     String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  site      Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  actions   SeoAction[]
+
+  @@unique([siteId, url])
+  @@index([siteId, state])
+}
+
+model SeoAction {
+  id              String    @id @default(cuid())
+  siteId          String
+  pageId          String?
+  fingerprint     String
+  type            String
+  pageUrl         String?
+  query           String?
+  title           String
+  rationale       String
+  recommendation  String
+  evidence        Json
+  expectedClicks  Float?
+  confidence      String
+  effort          String
+  severity        String
+  priority        Int
+  status          String    @default("NEW")
+  owner           String?
+  dueAt           DateTime?
+  notes           String?
+  checklist       Json?
+  firstSeenAt     DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
+  dismissedUntil  DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  site            Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  page            SitePage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
+
+  @@unique([siteId, fingerprint])
+  @@index([siteId, status, priority])
+  @@index([siteId, pageUrl])
 }
 
 // DataForSEO is opt-in per site. Existing sites remain in free sandbox mode.
