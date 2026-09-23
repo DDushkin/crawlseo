@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { toDbDate } from "@/lib/gsc/date-range";
-import { fetchGa4Report, parseGa4TrafficRows } from "./ga4-client";
+import { fetchGa4Report, ga4CredentialVersion, parseGa4TrafficRows } from "./ga4-client";
 
 /** Shared manual/scheduled sync. Replace normalized rows only after a complete valid GA4 response. */
 export async function syncGa4Site(siteId: string, userId: string, propertyId: string, now = new Date()) {
@@ -9,6 +9,12 @@ export async function syncGa4Site(siteId: string, userId: string, propertyId: st
   const report = await fetchGa4Report(userId, propertyId, start, end);
   const rows = parseGa4TrafficRows(report);
   await db.$transaction(async (tx) => {
+    // Serialize with credential removal: an in-flight report must not restore freshness after DELETE.
+    const credential = await tx.ga4Credential.findUnique({ where: { userId }, select: { encryptedJson: true } });
+    if (!credential) throw new Error("GA4 connection removed during sync");
+    if (!report.credentialVersion || ga4CredentialVersion(credential.encryptedJson) !== report.credentialVersion) {
+      throw new Error("GA4 connection changed during sync");
+    }
     const updated = await tx.site.updateMany({ where: { id: siteId, userId, ga4PropertyId: propertyId }, data: { lastGa4SyncAt: new Date() } });
     if (updated.count !== 1) throw new Error("GA4 property changed during sync");
     const range = { gte: toDbDate(start), lte: toDbDate(end) };
@@ -18,7 +24,7 @@ export async function syncGa4Site(siteId: string, userId: string, propertyId: st
       sessions: row.sessions, keyEvents: row.keyEvents })) });
     if (rows.organic.length) await tx.ga4OrganicDaily.createMany({ data: rows.organic.map((row) => ({ siteId, date: toDbDate(row.date),
       sessions: row.sessions, keyEvents: row.keyEvents })) });
-  });
+  }, { isolationLevel: "Serializable" });
   return { start, end, aiRows: rows.ai.length, organicRows: rows.organic.length,
     qualification: "GA4 sessions and key events from identifiable AI referrers; direct or stripped referrers cannot be identified." };
 }

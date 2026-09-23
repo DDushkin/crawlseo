@@ -88,3 +88,57 @@ test("a failed GA4 report never starts daily-row replacement", async (t) => {
   intercept(t, db, "$transaction", async () => { throw new Error("daily rows were replaced"); });
   await assert.rejects(syncGa4Site("site-1", "owner", "123456789", new Date("2026-09-23T12:00:00Z")), /HTTP 403/);
 });
+
+test("removing the key during a report prevents a later sync from restoring freshness", async (t) => {
+  connected(t);
+  intercept(t, globalThis, "fetch", async (url: string) => url === "https://oauth2.googleapis.com/token"
+    ? Response.json({ access_token: "test-access-token" })
+    : Response.json({ rows: [], rowCount: 0 }));
+  intercept(t, db, "$transaction", async (fn: (tx: object) => Promise<void>, options: { isolationLevel: string }) => {
+    assert.equal(options.isolationLevel, "Serializable");
+    return fn({
+      ga4Credential: { findUnique: async () => null },
+      site: { updateMany: async () => { throw new Error("freshness was restored"); } },
+      aiReferralDaily: { deleteMany: async () => { throw new Error("AI rows were replaced"); } },
+    });
+  });
+  await assert.rejects(syncGa4Site("site-1", "owner", "123456789", new Date("2026-09-23T12:00:00Z")),
+    /connection removed during sync/i);
+});
+
+test("replacing a removed key also rejects an in-flight report from the old key", async (t) => {
+  connected(t);
+  intercept(t, globalThis, "fetch", async (url: string) => url === "https://oauth2.googleapis.com/token"
+    ? Response.json({ access_token: "test-access-token" })
+    : Response.json({ rows: [], rowCount: 0 }));
+  intercept(t, db, "$transaction", async (fn: (tx: object) => Promise<void>, options: { isolationLevel: string }) => {
+    assert.equal(options.isolationLevel, "Serializable");
+    return fn({
+      ga4Credential: { findUnique: async () => ({ encryptedJson: encrypt(credentialJson) }) },
+      site: { updateMany: async () => { throw new Error("freshness was restored from the old key"); } },
+    });
+  });
+  await assert.rejects(syncGa4Site("site-1", "owner", "123456789", new Date("2026-09-23T12:00:00Z")),
+    /connection changed during sync/i);
+});
+
+test("an unchanged GA4 key permits a complete empty report to sync", async (t) => {
+  const encryptedJson = encrypt(credentialJson);
+  intercept(t, db.ga4Credential, "findUnique", async () => ({ encryptedJson }));
+  intercept(t, globalThis, "fetch", async (url: string) => url === "https://oauth2.googleapis.com/token"
+    ? Response.json({ access_token: "test-access-token" })
+    : Response.json({ rows: [], rowCount: 0 }));
+  const writes: string[] = [];
+  intercept(t, db, "$transaction", async (fn: (tx: object) => Promise<void>, options: { isolationLevel: string }) => {
+    assert.equal(options.isolationLevel, "Serializable");
+    return fn({
+      ga4Credential: { findUnique: async () => ({ encryptedJson }) },
+      site: { updateMany: async () => { writes.push("site"); return { count: 1 }; } },
+      aiReferralDaily: { deleteMany: async () => { writes.push("ai"); } },
+      ga4OrganicDaily: { deleteMany: async () => { writes.push("organic"); } },
+    });
+  });
+  const result = await syncGa4Site("site-1", "owner", "123456789", new Date("2026-09-23T12:00:00Z"));
+  assert.equal(result.aiRows, 0);
+  assert.deepEqual(writes, ["site", "ai", "organic"]);
+});

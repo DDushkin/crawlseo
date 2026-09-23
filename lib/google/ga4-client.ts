@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { decrypt } from "@/lib/encryption";
+import { createHash } from "node:crypto";
 import { getGa4ServiceAccountToken, parseGa4ServiceAccount } from "./ga4-service-account";
 
 const AI_SOURCES: Array<[RegExp, string]> = [
@@ -16,7 +17,11 @@ export function classifyAiReferrer(source: string) {
 }
 
 type Ga4Row = { dimensionValues?: { value?: string }[]; metricValues?: { value?: string }[] };
-type Ga4Report = { rows?: Ga4Row[]; rowCount?: number };
+type Ga4Report = { rows?: Ga4Row[]; rowCount?: number; credentialVersion?: string };
+
+export function ga4CredentialVersion(encryptedJson: string) {
+  return createHash("sha256").update(encryptedJson).digest("hex");
+}
 
 export function ga4ReportRowCount(report: Ga4Report) {
   if (report.rowCount === undefined && (!report.rows || report.rows.length === 0)) return 0;
@@ -83,5 +88,5 @@ export async function fetchGa4Report(userId: string, propertyId: string, startDa
     if (rows.length >= rowCount) break;
   }
   if (rows.length !== rowCount) throw new Error("GA4 report is incomplete");
-  return { rows, rowCount };
+  return { rows, rowCount, credentialVersion: ga4CredentialVersion(credential.encryptedJson) };
 }

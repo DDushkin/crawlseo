@@ -58,7 +58,7 @@ export async function DELETE() {
     await db.$transaction(async (tx) => {
       await tx.ga4Credential.deleteMany({ where: { userId: session.user.id } });
       await tx.site.updateMany({ where: { userId: session.user.id }, data: { lastGa4SyncAt: null } });
-    });
+    }, { isolationLevel: "Serializable" });
     return Response.json({ connected: false }, { headers: responseHeaders });
   } catch {
     return Response.json({ error: "Could not remove GA4 connection" }, { status: 500, headers: responseHeaders });

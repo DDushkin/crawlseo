@@ -104,7 +104,9 @@ test("malformed or oversized credential fails before contacting Google", async (
 
 test("removing GA4 key invalidates sync freshness but preserves historical rows", async (t) => {
   const writes: string[] = [];
-  intercept(t, db, "$transaction", async (fn: (tx: object) => Promise<void>) => fn({
+  intercept(t, db, "$transaction", async (fn: (tx: object) => Promise<void>, options: { isolationLevel: string }) => {
+    assert.equal(options.isolationLevel, "Serializable");
+    return fn({
     ga4Credential: { deleteMany: async (args: { where: { userId: string } }) => {
       assert.equal(args.where.userId, "owner"); writes.push("key");
     } },
@@ -112,7 +114,8 @@ test("removing GA4 key invalidates sync freshness but preserves historical rows"
       assert.equal(args.where.userId, "owner"); assert.equal(args.data.lastGa4SyncAt, null); writes.push("freshness");
     } },
     aiReferralDaily: { deleteMany: async () => { throw new Error("historical data erased"); } },
-  }));
+    });
+  });
   const response = await route.DELETE();
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Cache-Control"), "no-store");
