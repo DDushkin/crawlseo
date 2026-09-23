@@ -1,6 +1,6 @@
 export async function confirmDataForSeoRequest(
   siteId: string,
-  kind: "keywords" | "domain" | "backlinks",
+  kind: "keywords" | "domain" | "backlinks" | "competitor_gap" | "placement" | "ai_citation",
   target: string,
   limit?: number
 ): Promise<boolean> {

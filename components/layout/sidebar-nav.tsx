@@ -75,6 +75,7 @@ export function SidebarNav({
           { href: `/sites/${activeSiteId}/keyword-research`, label: "Keyword Research", icon: SearchCheck },
           { href: `/sites/${activeSiteId}/domain-overview`, label: "Domain Overview", icon: Globe },
           { href: `/sites/${activeSiteId}/backlinks`, label: "Backlinks", icon: LinkIcon },
+          { href: `/sites/${activeSiteId}/operator-research`, label: "Operator Research", icon: Lightbulb },
         ],
       }
     : null;

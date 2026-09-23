@@ -77,8 +77,9 @@ Crawl up to 2,000 pages with concurrent fetching. Health score, 16 issue types, 
 | | Feature | Description |
 |---|---|---|
 | ⚡ | **Core Web Vitals** | LCP, CLS, INP, TTFB via PageSpeed Insights with mobile/desktop comparison |
-| 🔑 | **Keyword Research** | DataForSEO-powered keyword ideas with volume, difficulty, CPC. Free Google Autocomplete fallback |
+| 🔑 | **Keyword Research** | DataForSEO related-keyword metrics with volume, difficulty, CPC. Free Google Autocomplete fallback |
 | 🔗 | **Backlinks** | Backlink profile, referring domains, anchor text, dofollow/nofollow analysis |
+| 🧭 | **Operator Research** | On-demand competitor keyword gaps, paid-article backlink checks, and sampled ChatGPT citations with cost preview and next-step guidance |
 | 📊 | **Rank Tracking** | Historical position snapshots with saved keywords and notes |
 | 💡 | **SEO Opportunities** | Striking distance keywords, low CTR, content decay, cannibalization detection |
 | 🔔 | **Alerts** | Traffic drops, position changes, new 404s, vitals degradation — via email, Slack, Telegram, webhook |

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { decrypt } from "@/lib/encryption";
@@ -6,9 +7,9 @@ import { decrypt } from "@/lib/encryption";
 export const LIVE_SITE_BUDGET_USD = 0.15;
 export const MAX_REQUEST_USD = 0.06;
 
-export type DataForSeoKind = "keywords" | "domain" | "backlinks";
+export type DataForSeoKind = "keywords" | "domain" | "backlinks" | "competitor_gap" | "placement" | "ai_citation";
 export type DataForSeoMode = "SANDBOX" | "LIVE";
-type Operation = "related_keywords" | "domain_rank_overview" | "backlinks_summary" | "backlinks_list";
+type Operation = "related_keywords" | "domain_rank_overview" | "backlinks_summary" | "backlinks_list" | "competitor_gap" | "placement_check" | "ai_citation";
 
 export class DataForSeoError extends Error {
   constructor(message: string, public status = 400) {
@@ -48,9 +49,19 @@ export async function getDataForSeoAccountBalance(userId: string): Promise<numbe
 
 export function normalizeDataForSeoTarget(target: string, kind: DataForSeoKind): string {
   const clean = target.trim();
-  if (kind === "keywords") {
+  if (kind === "keywords" || kind === "ai_citation") {
     if (clean.length < 3 || clean.length > 200) throw new DataForSeoError("Keyword must be 3–200 characters");
     return clean;
+  }
+  if (kind === "placement") {
+    let url: URL;
+    try { url = new URL(clean); } catch { throw new DataForSeoError("Enter a public article URL"); }
+    const host = url.hostname.toLowerCase();
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.port || url.search || url.hash ||
+        isIP(host) || host === "localhost" || !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(host) || url.pathname === "/") {
+      throw new DataForSeoError("Enter a public article URL without query parameters");
+    }
+    return url.toString();
   }
   const domain = clean.replace(/^https?:\/\//i, "").replace(/\/.*$/, "").replace(/^www\./i, "").toLowerCase();
   const labels = domain.split(".");
@@ -64,12 +75,15 @@ export function normalizeDataForSeoTarget(target: string, kind: DataForSeoKind):
 function operations(kind: DataForSeoKind): Operation[] {
   if (kind === "keywords") return ["related_keywords"];
   if (kind === "domain") return ["domain_rank_overview", "backlinks_summary"];
-  return ["backlinks_summary", "backlinks_list"];
+  if (kind === "backlinks") return ["backlinks_summary", "backlinks_list"];
+  if (kind === "placement") return ["placement_check"];
+  return [kind];
 }
 
-function requestSpec(
+export function buildDataForSeoRequest(
   operation: Operation,
   target: string,
+  siteDomain: string,
   market: { locationCode: number; languageCode: string },
   limit: number
 ) {
@@ -80,6 +94,7 @@ function requestSpec(
         params: { keyword: target, location_code: market.locationCode, language_code: market.languageCode, limit: 50 },
         estimatedUsd: 0.025,
         ttlDays: 30,
+        timeoutMs: 30_000,
       };
     case "domain_rank_overview":
       return {
@@ -87,6 +102,7 @@ function requestSpec(
         params: { target, location_code: market.locationCode, language_code: market.languageCode },
         estimatedUsd: 0.02,
         ttlDays: 7,
+        timeoutMs: 30_000,
       };
     case "backlinks_summary":
       return {
@@ -94,6 +110,7 @@ function requestSpec(
         params: { target, internal_list_limit: 10 },
         estimatedUsd: 0.03,
         ttlDays: 7,
+        timeoutMs: 30_000,
       };
     case "backlinks_list":
       return {
@@ -101,6 +118,28 @@ function requestSpec(
         params: { target, mode: "as_is", limit, offset: 0, order_by: ["rank,desc"] },
         estimatedUsd: 0.035,
         ttlDays: 7,
+        timeoutMs: 30_000,
+      };
+    case "competitor_gap":
+      if (target === normalizeDataForSeoTarget(siteDomain, "domain")) throw new DataForSeoError("Choose a different domain as competitor");
+      return {
+        endpoint: "/dataforseo_labs/google/domain_intersection/live",
+        params: { target1: target, target2: normalizeDataForSeoTarget(siteDomain, "domain"), intersections: false,
+          item_types: ["organic"], location_code: market.locationCode, language_code: market.languageCode,
+          include_serp_info: false, limit },
+        estimatedUsd: 0.02, ttlDays: 7, timeoutMs: 30_000,
+      };
+    case "placement_check":
+      return {
+        endpoint: "/backlinks/backlinks/live",
+        params: { target: normalizeDataForSeoTarget(siteDomain, "domain"), mode: "as_is", filters: ["url_from", "=", target], limit, offset: 0 },
+        estimatedUsd: 0.035, ttlDays: 7, timeoutMs: 30_000,
+      };
+    case "ai_citation":
+      return {
+        endpoint: "/ai_optimization/chat_gpt/llm_scraper/live/advanced",
+        params: { keyword: target, force_web_search: true, location_code: market.locationCode, language_code: market.languageCode },
+        estimatedUsd: 0.004, ttlDays: 1, timeoutMs: 130_000,
       };
   }
 }
@@ -127,7 +166,7 @@ export async function previewDataForSeo(
   const settings = await getDataForSeoSettings(siteId, domain);
   const market = { locationCode: settings.locationCode, languageCode: settings.languageCode };
   const specs = operations(kind).map((operation) => {
-    const spec = requestSpec(operation, target, market, limit);
+    const spec = buildDataForSeoRequest(operation, target, domain, market, limit);
     return { operation, ...spec, cacheKey: cacheKey(siteId, settings.mode as DataForSeoMode, spec.endpoint, spec.params) };
   });
   const cached = await db.dataForSeoRun.findMany({
@@ -147,7 +186,7 @@ export async function previewDataForSeo(
     budgetUsd: LIVE_SITE_BUDGET_USD,
     locationCode: settings.locationCode,
     languageCode: settings.languageCode,
-    marketApplies: kind !== "backlinks",
+    marketApplies: kind !== "backlinks" && kind !== "placement",
   };
 }
 
@@ -168,7 +207,7 @@ async function runOne(
 ): Promise<{ data: ApiResponse; cached: boolean; chargedUsd: number; mode: DataForSeoMode }> {
   const settings = await getDataForSeoSettings(siteId, domain);
   const mode = settings.mode as DataForSeoMode;
-  const spec = requestSpec(operation, target, settings, limit);
+  const spec = buildDataForSeoRequest(operation, target, domain, settings, limit);
   if (spec.estimatedUsd > MAX_REQUEST_USD) throw new DataForSeoError("Request exceeds the per-request cost cap");
   const key = cacheKey(siteId, mode, spec.endpoint, spec.params);
   const hit = await db.dataForSeoRun.findFirst({
@@ -214,7 +253,7 @@ async function runOne(
         "Content-Type": "application/json",
       },
       body: JSON.stringify([spec.params]),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(spec.timeoutMs),
     });
     response = await res.json() as ApiResponse;
     if (!res.ok || response.status_code !== 20000 || response.tasks?.[0]?.status_code !== 20000) {

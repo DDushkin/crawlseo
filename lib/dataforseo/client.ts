@@ -36,6 +36,22 @@ export type BacklinkItem = {
   lastSeen: string | null;
 };
 
+export type CompetitorGapItem = {
+  keyword: string;
+  volume: number | null;
+  difficulty: number | null;
+  intent: string | null;
+  competitorRank: number | null;
+  competitorUrl: string | null;
+};
+
+export type AiCitationSample = {
+  model: string | null;
+  observedAt: string | null;
+  siteCited: boolean;
+  sources: Array<{ domain: string; url: string; title: string }>;
+};
+
 type DataForSeoResponse = { tasks?: Array<{ result?: Array<Record<string, unknown>> }> };
 type KeywordItem = {
   keyword?: string;
@@ -112,6 +128,50 @@ export function parseBacklinksProfile(data: DataForSeoResponse): BacklinkItem[] 
       lastSeen: row.last_seen ?? null,
     };
   });
+}
+
+export function parseCompetitorGap(data: DataForSeoResponse): CompetitorGapItem[] {
+  const items = firstResult(data)?.items;
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item) => {
+    const row = item as {
+      keyword_data?: { keyword?: string; keyword_info?: { search_volume?: number }; keyword_properties?: { keyword_difficulty?: number }; search_intent_info?: { main_intent?: string } };
+      first_domain_serp_element?: { rank_group?: number; url?: string };
+    };
+    if (!row.keyword_data?.keyword) return [];
+    return [{
+      keyword: row.keyword_data.keyword,
+      volume: row.keyword_data.keyword_info?.search_volume ?? null,
+      difficulty: row.keyword_data.keyword_properties?.keyword_difficulty ?? null,
+      intent: row.keyword_data.search_intent_info?.main_intent ?? null,
+      competitorRank: row.first_domain_serp_element?.rank_group ?? null,
+      competitorUrl: row.first_domain_serp_element?.url ?? null,
+    }];
+  });
+}
+
+export function parsePlacementCheck(data: DataForSeoResponse, sourceUrl: string) {
+  const links = parseBacklinksProfile(data).filter((link) => link.sourceUrl.replace(/\/$/, "") === sourceUrl.replace(/\/$/, ""));
+  return { observed: links.length > 0, links };
+}
+
+export function parseAiCitationSample(data: DataForSeoResponse, siteDomain: string): AiCitationSample {
+  const result = firstResult(data) as {
+    model?: string; datetime?: string;
+    sources?: Array<{ domain?: string; url?: string; title?: string }>;
+  } | undefined;
+  const sources = (result?.sources ?? []).filter((source) => source.url && source.domain).map((source) => ({
+    domain: source.domain!.toLowerCase().replace(/^www\./, ""),
+    url: source.url!,
+    title: source.title ?? source.domain!,
+  }));
+  const domain = siteDomain.toLowerCase().replace(/^www\./, "");
+  return {
+    model: result?.model ?? null,
+    observedAt: result?.datetime ?? null,
+    siteCited: sources.some((source) => source.domain === domain || source.domain.endsWith(`.${domain}`)),
+    sources,
+  };
 }
 
 export async function testConnection(login: string, password: string): Promise<boolean> {

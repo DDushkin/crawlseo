@@ -9,7 +9,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteId:
   const site = await db.site.findFirst({ where: { id: siteId, userId: session.user.id }, select: { domain: true } });
   if (!site) return Response.json({ error: "Not found" }, { status: 404 });
   const body = await req.json().catch(() => null);
-  if (!body || !["keywords", "domain", "backlinks"].includes(body.kind) || typeof body.target !== "string") {
+  if (!body || !["keywords", "domain", "backlinks", "competitor_gap", "placement", "ai_citation"].includes(body.kind) || typeof body.target !== "string") {
     return Response.json({ error: "Invalid preview request" }, { status: 400 });
   }
   try {
