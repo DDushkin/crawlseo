@@ -115,6 +115,8 @@ model Site {
   seoActions         SeoAction[]
   seoChanges         SeoChange[]
   seoOutcomes        SeoOutcome[]
+  keywordTargets     KeywordTarget[]
+  contentBriefs      ContentBrief[]
 
   @@unique([userId, domain])
 }
@@ -131,6 +133,8 @@ model SitePage {
 
   site      Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
   actions   SeoAction[]
+  keywordTargets KeywordTarget[]
+  contentBriefs ContentBrief[]
 
   @@unique([siteId, url])
   @@index([siteId, state])
@@ -216,6 +220,48 @@ model SeoOutcome {
   change            SeoChange @relation(fields: [changeId], references: [id], onDelete: Cascade)
 
   @@index([siteId, evaluatedAt])
+}
+
+model KeywordTarget {
+  id        String    @id @default(cuid())
+  siteId    String
+  pageId    String?
+  query     String
+  decision  String
+  role      String    @default("PRIMARY")
+  intent    String?
+  country   String    @default("UA")
+  language  String    @default("uk")
+  source    String    @default("MANUAL")
+  notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  site      Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  page      SitePage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  briefs    ContentBrief[]
+
+  @@unique([siteId, query, country, language])
+  @@index([siteId, pageId])
+}
+
+model ContentBrief {
+  id             String         @id @default(cuid())
+  siteId         String
+  targetId       String?
+  pageId         String?
+  title          String
+  content        Json
+  status         String         @default("DRAFT")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  site           Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  target         KeywordTarget? @relation(fields: [targetId], references: [id], onDelete: SetNull)
+  page           SitePage?      @relation(fields: [pageId], references: [id], onDelete: SetNull)
+
+  @@index([siteId, status, createdAt])
+  @@index([siteId, targetId])
 }
 
 // DataForSEO is opt-in per site. Existing sites remain in free sandbox mode.
