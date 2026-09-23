@@ -12,6 +12,7 @@ import {
   isSearchIndexCandidate,
 } from "./analysis";
 import { REMEDIATION } from "./remediation";
+import { compareAndStoreCompletedCrawl } from "@/lib/operator/crawl-diff";
 
 const ABSOLUTE_MAX_PAGES = 2000;
 const BATCH_SIZE = 15;
@@ -1086,6 +1087,14 @@ async function executeCrawl(
       healthScore,
     },
   });
+
+  try {
+    await compareAndStoreCompletedCrawl(_siteId, crawlId);
+  } catch (error) {
+    // The crawl snapshot is still valid. A comparison can be retried after a
+    // migration or transient DB error without replacing that snapshot.
+    console.error(`Crawl comparison failed for ${crawlId}:`, error);
+  }
 
   return {
     crawlId,

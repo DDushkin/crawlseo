@@ -117,6 +117,10 @@ model Site {
   seoOutcomes        SeoOutcome[]
   keywordTargets     KeywordTarget[]
   contentBriefs      ContentBrief[]
+  crawlComparisons   CrawlComparison[]
+  crawlFindings      CrawlFinding[]
+  placements         Placement[]
+  placementChecks    PlacementCheck[]
 
   @@unique([userId, domain])
 }
@@ -135,6 +139,7 @@ model SitePage {
   actions   SeoAction[]
   keywordTargets KeywordTarget[]
   contentBriefs ContentBrief[]
+  placements Placement[]
 
   @@unique([siteId, url])
   @@index([siteId, state])
@@ -586,8 +591,87 @@ model Crawl {
   issues      CrawlIssue[]
   auditPages  AuditPage[]
   auditLinks  AuditLink[]
+  comparisonsAsCurrent CrawlComparison[] @relation("ComparisonCurrentCrawl")
+  comparisonsAsBaseline CrawlComparison[] @relation("ComparisonBaselineCrawl")
 
   @@index([siteId, startedAt])
+}
+
+model CrawlComparison {
+  id              String   @id @default(cuid())
+  siteId          String
+  crawlId         String   @unique
+  baselineCrawlId String?
+  comparedAt      DateTime @default(now())
+  newCount        Int
+  persistentCount Int
+  resolvedCount   Int
+  site            Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  crawl           Crawl    @relation("ComparisonCurrentCrawl", fields: [crawlId], references: [id], onDelete: Cascade)
+  baselineCrawl   Crawl?   @relation("ComparisonBaselineCrawl", fields: [baselineCrawlId], references: [id], onDelete: SetNull)
+  findings        CrawlFinding[]
+
+  @@index([siteId, comparedAt])
+}
+
+model CrawlFinding {
+  id           String          @id @default(cuid())
+  siteId       String
+  comparisonId String
+  fingerprint  String
+  url          String
+  type         String
+  severity     String
+  status       String
+  message      String
+  details      Json?
+  site         Site            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  comparison   CrawlComparison @relation(fields: [comparisonId], references: [id], onDelete: Cascade)
+
+  @@unique([comparisonId, fingerprint])
+  @@index([siteId, status])
+}
+
+model Placement {
+  id              String   @id @default(cuid())
+  siteId          String
+  pageId          String?
+  publisher       String
+  articleUrl      String
+  targetUrl       String
+  anchorText      String?
+  articleTitle    String?
+  publishedAt     DateTime? @db.Date
+  costUah         Float
+  feeUah          Float     @default(0)
+  status          String    @default("PLANNED")
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  site            Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  page            SitePage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  checks          PlacementCheck[]
+
+  @@unique([siteId, articleUrl, targetUrl])
+  @@index([siteId, publishedAt])
+}
+
+model PlacementCheck {
+  id           String   @id @default(cuid())
+  siteId       String
+  placementId  String
+  source       String
+  status       String
+  observedUrl  String?
+  anchorText   String?
+  rel          String?
+  httpStatus   Int?
+  error        String?
+  checkedAt    DateTime @default(now())
+  site         Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  placement    Placement @relation(fields: [placementId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, placementId, checkedAt])
 }
 
 enum CrawlStatus {

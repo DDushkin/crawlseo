@@ -64,6 +64,8 @@ export function SidebarNav({
           { href: `/sites/${activeSiteId}/keyword-map`, label: "Keyword Map", icon: SearchCheck },
           { href: `/sites/${activeSiteId}/content-briefs`, label: "Content Briefs", icon: Bookmark },
           { href: `/sites/${activeSiteId}/crawl`, label: "Crawl / Audit", icon: Bug },
+          { href: `/sites/${activeSiteId}/crawl-changes`, label: "Crawl Changes", icon: Bug },
+          { href: `/sites/${activeSiteId}/placements`, label: "Paid Placements", icon: LinkIcon },
           { href: `/sites/${activeSiteId}/vitals`, label: "Vitals", icon: Gauge },
           { href: `/sites/${activeSiteId}/opportunities`, label: "Opportunities", icon: Lightbulb },
           { href: `/sites/${activeSiteId}/alerts`, label: "Alerts", icon: Bell },
