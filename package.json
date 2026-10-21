@@ -2,6 +2,9 @@
   "name": "crawlseo",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "^24.22.1"
+  },
   "description": "Open-source SEO monitoring. GSC + Crawler + Core Web Vitals + MCP in one dashboard.",
   "homepage": "https://github.com/crawlseo/crawlseo",
   "repository": "https://github.com/crawlseo/crawlseo",

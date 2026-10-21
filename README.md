@@ -196,7 +196,7 @@ CRAWLSEO_IMAGE=crawlseo:local docker compose up -d
 ### Manual
 
 ```bash
-# Prerequisites: Node.js 20+, PostgreSQL
+# Prerequisites: Node.js 24.22.1 (see .nvmrc), PostgreSQL
 
 npm install
 cp .env.example .env.local
