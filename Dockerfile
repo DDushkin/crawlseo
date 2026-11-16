@@ -1,5 +1,5 @@
-FROM node:24.22.1-alpine3.23@sha256:4b00b6d1aa138805aace94cc2482808f2b4f01e5e9c9f8cdc0e217fd70600ef9 AS base
-RUN test "$(node --version)" = v24.22.1
+FROM node:24.22.3-alpine3.23@sha256:3946fb783fdce8a2812136ea694bc95c698c4f4096f3fd18568dc27a8ac389dc AS base
+RUN test "$(node --version)" = v24.22.3
 
 FROM base AS deps
 WORKDIR /app

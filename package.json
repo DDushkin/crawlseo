@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": "^24.22.1"
+    "node": "^24.22.3"
   },
   "description": "Open-source SEO monitoring. GSC + Crawler + Core Web Vitals + MCP in one dashboard.",
   "homepage": "https://github.com/crawlseo/crawlseo",
@@ -44,7 +44,7 @@
     "clsx": "^2.1.1",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.7.0",
-    "next": "16.3.8",
+    "next": "16.4.6",
     "next-auth": "5.0.0-beta.32",
     "prisma": "^6.19.3",
     "react": "19.2.4",
@@ -62,9 +62,23 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.8",
+    "eslint-config-next": "16.4.6",
     "tailwindcss": "^4",
     "tsx": "^4.23.9",
     "typescript": "^5"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.8"
+    },
+    "@ts-morph/common": {
+      "minimatch": "11.0.8"
+    },
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.0"
+    },
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
   }
 }
