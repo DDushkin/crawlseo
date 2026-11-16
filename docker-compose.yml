@@ -45,7 +45,7 @@ services:
       REDIS_URL: ${REDIS_URL:-}
 
   db:
-    image: postgres:16-alpine
+    image: postgres:16.16-alpine
     restart: always
     volumes:
       - db_data:/var/lib/postgresql/data
